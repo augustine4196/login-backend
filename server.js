@@ -15,17 +15,14 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// === Test Route ===
 app.get("/", (req, res) => {
   res.send("✅ FitFlow backend is working!");
 });
 
-// === Connect to MongoDB Atlas ===
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ Connected to MongoDB Atlas"))
   .catch(err => console.log("❌ MongoDB Atlas connection error:", err));
 
-// === Signup Route ===
 app.post('/signup', async (req, res) => {
   const { fullName, email, password } = req.body;
 
@@ -45,7 +42,6 @@ app.post('/signup', async (req, res) => {
   }
 });
 
-// === Login Route ===
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
@@ -70,7 +66,6 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// === Chatbot Route ===
 app.post('/ask', async (req, res) => {
   const { question } = req.body;
 
@@ -92,7 +87,6 @@ app.post('/ask', async (req, res) => {
   }
 });
 
-// === Start Server ===
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
