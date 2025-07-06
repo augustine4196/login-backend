@@ -2,18 +2,16 @@ const express = require('express');
 const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 const cors = require('cors');
-require('dotenv').config(); // Load environment variables
+require('dotenv').config();
 const User = require('./models/User');
 
-// === OpenAI SDK v4 Integration ===
+// ✅ OpenAI SDK v4 Integration
 const { OpenAI } = require("openai");
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
 const app = express();
-
-// === Middlewares ===
 app.use(cors());
 app.use(bodyParser.json());
 
