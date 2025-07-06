@@ -5,12 +5,11 @@ const cors = require('cors');
 require('dotenv').config(); // Load environment variables
 const User = require('./models/User');
 
-// OpenAI Integration
-const { Configuration, OpenAIApi } = require('openai');
-const configuration = new Configuration({
-  apiKey: process.env.OPENAI_API_KEY, // Add this key in your .env file
+// === OpenAI SDK v4 Integration ===
+const { OpenAI } = require("openai");
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
 });
-const openai = new OpenAIApi(configuration);
 
 const app = express();
 
@@ -89,12 +88,12 @@ app.post('/ask', async (req, res) => {
   }
 
   try {
-    const response = await openai.createChatCompletion({
+    const completion = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
       messages: [{ role: "user", content: question }]
     });
 
-    const botReply = response.data.choices[0].message.content;
+    const botReply = completion.choices[0].message.content;
     res.json({ answer: botReply });
   } catch (error) {
     console.error("❌ OpenAI Error:", error.message);
