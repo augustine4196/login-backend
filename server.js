@@ -49,22 +49,15 @@ app.post('/signup', async (req, res) => {
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
-  console.log("🔐 Login attempt with:", { email, password });
-
   try {
     const user = await User.findOne({ email });
-
     if (!user) {
-      console.warn("⚠️ User not found with email:", email);
       return res.status(401).json({ error: "User not found." });
     }
 
     if (String(user.password) !== String(password)) {
-      console.warn("❌ Incorrect password for:", email);
       return res.status(401).json({ error: "Incorrect password." });
     }
-
-    console.log("🎉 Login successful for:", email);
 
     return res.status(200).json({
       message: "Login successful!",
@@ -72,7 +65,7 @@ app.post('/login', async (req, res) => {
     });
 
   } catch (err) {
-    console.error("🔥 Server error during login:", err);
+    console.error("Login error:", err);
     return res.status(500).json({ error: "Internal server error", details: err.message });
   }
 });
@@ -94,7 +87,7 @@ app.post('/ask', async (req, res) => {
     const botReply = completion.choices[0].message.content;
     res.json({ answer: botReply });
   } catch (error) {
-    console.error("❌ OpenAI Error:", error.message);
+    console.error("OpenAI Error:", error.message);
     res.status(500).json({ error: "Chatbot failed to respond." });
   }
 });
