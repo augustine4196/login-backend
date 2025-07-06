@@ -5,6 +5,13 @@ const cors = require('cors');
 require('dotenv').config(); // Load environment variables
 const User = require('./models/User');
 
+// OpenAI Integration
+const { Configuration, OpenAIApi } = require('openai');
+const configuration = new Configuration({
+  apiKey: process.env.OPENAI_API_KEY, // Add this key in your .env file
+});
+const openai = new OpenAIApi(configuration);
+
 const app = express();
 
 // === Middlewares ===
@@ -70,6 +77,28 @@ app.post('/login', async (req, res) => {
   } catch (err) {
     console.error("🔥 Server error during login:", err);
     return res.status(500).json({ error: "Internal server error", details: err.message });
+  }
+});
+
+// === Chatbot Route ===
+app.post('/ask', async (req, res) => {
+  const { question } = req.body;
+
+  if (!question) {
+    return res.status(400).json({ error: "No question provided." });
+  }
+
+  try {
+    const response = await openai.createChatCompletion({
+      model: "gpt-3.5-turbo",
+      messages: [{ role: "user", content: question }]
+    });
+
+    const botReply = response.data.choices[0].message.content;
+    res.json({ answer: botReply });
+  } catch (error) {
+    console.error("❌ OpenAI Error:", error.message);
+    res.status(500).json({ error: "Chatbot failed to respond." });
   }
 });
 
