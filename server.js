@@ -11,17 +11,17 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// 🟢 Test Route
+// ✅ Test route
 app.get("/", (req, res) => {
   res.send("✅ FitFlow backend is working!");
 });
 
-// 🟢 MongoDB Connection
+// ✅ MongoDB Connection
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ Connected to MongoDB Atlas"))
   .catch(err => console.log("❌ MongoDB Atlas connection error:", err));
 
-// 🟢 Signup Route
+// ✅ Signup route
 app.post('/signup', async (req, res) => {
   const { fullName, email, password } = req.body;
 
@@ -41,7 +41,7 @@ app.post('/signup', async (req, res) => {
   }
 });
 
-// 🟢 Login Route
+// ✅ Login route
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
@@ -66,7 +66,7 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// 🟢 Nutritionix API Chat Route
+// ✅ Chatbot route using OpenRouter
 app.post('/ask', async (req, res) => {
   const { question } = req.body;
 
@@ -76,30 +76,29 @@ app.post('/ask', async (req, res) => {
 
   try {
     const response = await axios.post(
-      'https://trackapi.nutritionix.com/v2/natural/nutrients',
-      { query: question },
+      'https://openrouter.ai/api/v1/chat/completions',
+      {
+        model: "mistralai/mixtral-8x7b",
+        messages: [{ role: "user", content: question }]
+      },
       {
         headers: {
-          'x-app-id': process.env.NUTRITIONIX_APP_ID,
-          'x-app-key': process.env.NUTRITIONIX_API_KEY,
-          'Content-Type': 'application/json'
+          "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json"
         }
       }
     );
 
-    const foodData = response.data.foods.map(food => {
-      return `${food.food_name} - ${food.nf_calories} calories, ${food.nf_protein}g protein, ${food.serving_qty} ${food.serving_unit}`;
-    }).join('\n');
-
-    res.json({ answer: foodData });
+    const botReply = response.data.choices[0].message.content;
+    res.json({ answer: botReply });
 
   } catch (error) {
-    console.error("Nutritionix Error:", error.response?.data || error.message);
-    res.status(500).json({ error: "Could not fetch nutrition data." });
+    console.error("OpenRouter Error:", error.response?.data || error.message);
+    res.status(500).json({ error: "Failed to get response from OpenRouter." });
   }
 });
 
-// 🟢 Start Server
+// ✅ Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
