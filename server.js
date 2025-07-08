@@ -78,14 +78,14 @@ app.post('/ask', async (req, res) => {
     const response = await axios.post(
       'https://openrouter.ai/api/v1/chat/completions',
       {
-        model: 'openai/gpt-3.5-turbo', // ✅ VALID MODEL
+        model: 'mistralai/mistral-7b-instruct',  // ✅ Working free model
         messages: [{ role: 'user', content: question }]
       },
       {
         headers: {
           'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://fitflow.netlify.app/', // ✅ Your frontend URL
+          'HTTP-Referer': 'https://fitflow.netlify.app/',  // ✅ your frontend domain
           'X-Title': 'FitFlow Chat'
         }
       }
@@ -99,6 +99,7 @@ app.post('/ask', async (req, res) => {
     res.status(500).json({ error: "Chatbot failed to respond." });
   }
 });
+
 
 // ✅ Start server
 const PORT = process.env.PORT || 5000;
