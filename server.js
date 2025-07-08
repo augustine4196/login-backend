@@ -16,53 +16,43 @@ app.get("/", (req, res) => {
   res.send("✅ FitFlow backend is working!");
 });
 
-// ✅ MongoDB Connection
+// ✅ MongoDB connection
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ Connected to MongoDB Atlas"))
-  .catch(err => console.log("❌ MongoDB Atlas connection error:", err));
+  .catch(err => console.error("❌ MongoDB connection error:", err));
 
-// ✅ Signup route
+// ✅ Signup
 app.post('/signup', async (req, res) => {
   const { fullName, email, password } = req.body;
-
   try {
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ error: "Email already registered." });
     }
-
     const newUser = new User({ fullName, email, password });
     await newUser.save();
     res.status(200).json({ message: "Account created successfully!" });
-
   } catch (err) {
     console.error("❌ Signup error:", err);
-    res.status(500).json({ error: "Server error during signup." });
+    res.status(500).json({ error: "Signup failed. Please try again." });
   }
 });
 
-// ✅ Login route
+// ✅ Login
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
-
   try {
     const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(401).json({ error: "User not found." });
-    }
+    if (!user) return res.status(401).json({ error: "User not found." });
 
     if (String(user.password) !== String(password)) {
       return res.status(401).json({ error: "Incorrect password." });
     }
 
-    return res.status(200).json({
-      message: "Login successful!",
-      fullName: user.fullName
-    });
-
+    res.status(200).json({ message: "Login successful!", fullName: user.fullName });
   } catch (err) {
-    console.error("Login error:", err);
-    return res.status(500).json({ error: "Internal server error", details: err.message });
+    console.error("❌ Login error:", err);
+    res.status(500).json({ error: "Login failed. Please try again." });
   }
 });
 
@@ -78,14 +68,14 @@ app.post('/ask', async (req, res) => {
     const response = await axios.post(
       'https://openrouter.ai/api/v1/chat/completions',
       {
-        model: 'mistralai/mistral-7b-instruct',  // ✅ Working free model
+        model: 'mistralai/mistral-7b-instruct', // ✅ Free working model
         messages: [{ role: 'user', content: question }]
       },
       {
         headers: {
           'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://fitflow.netlify.app/',  // ✅ your frontend domain
+          'HTTP-Referer': 'https://fitflow.netlify.app/', // ✅ Your Netlify frontend
           'X-Title': 'FitFlow Chat'
         }
       }
@@ -99,7 +89,6 @@ app.post('/ask', async (req, res) => {
     res.status(500).json({ error: "Chatbot failed to respond." });
   }
 });
-
 
 // ✅ Start server
 const PORT = process.env.PORT || 5000;
