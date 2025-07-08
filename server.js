@@ -11,10 +11,12 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
+// 🟢 Test Route
 app.get("/", (req, res) => {
   res.send("✅ FitFlow backend is working!");
 });
 
+// 🟢 MongoDB Connection
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ Connected to MongoDB Atlas"))
   .catch(err => console.log("❌ MongoDB Atlas connection error:", err));
@@ -31,8 +33,8 @@ app.post('/signup', async (req, res) => {
 
     const newUser = new User({ fullName, email, password });
     await newUser.save();
-
     res.status(200).json({ message: "Account created successfully!" });
+
   } catch (err) {
     console.error("❌ Signup error:", err);
     res.status(500).json({ error: "Server error during signup." });
@@ -64,7 +66,7 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// ✅ Chat Route Using Nutritionix API
+// 🟢 Nutritionix API Chat Route
 app.post('/ask', async (req, res) => {
   const { question } = req.body;
 
@@ -73,29 +75,31 @@ app.post('/ask', async (req, res) => {
   }
 
   try {
-    const response = await axios({
-      method: 'POST',
-      url: 'https://trackapi.nutritionix.com/v2/natural/nutrients',
-      headers: {
-        'x-app-id': process.env.NUTRITIONIX_APP_ID,
-        'x-app-key': process.env.NUTRITIONIX_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      data: { query: question }
-    });
+    const response = await axios.post(
+      'https://trackapi.nutritionix.com/v2/natural/nutrients',
+      { query: question },
+      {
+        headers: {
+          'x-app-id': process.env.NUTRITIONIX_APP_ID,
+          'x-app-key': process.env.NUTRITIONIX_API_KEY,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
 
     const foodData = response.data.foods.map(food => {
       return `${food.food_name} - ${food.nf_calories} calories, ${food.nf_protein}g protein, ${food.serving_qty} ${food.serving_unit}`;
     }).join('\n');
 
     res.json({ answer: foodData });
+
   } catch (error) {
     console.error("Nutritionix Error:", error.response?.data || error.message);
     res.status(500).json({ error: "Could not fetch nutrition data." });
   }
 });
 
-// Server Start
+// 🟢 Start Server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
