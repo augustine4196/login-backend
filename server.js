@@ -2,14 +2,10 @@ const express = require('express');
 const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const axios = require('axios');
 require('dotenv').config();
-const User = require('./models/User');
 
-// ✅ OpenAI SDK v4 Integration
-const { OpenAI } = require("openai");
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const User = require('./models/User');
 
 const app = express();
 app.use(cors());
@@ -23,6 +19,7 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ Connected to MongoDB Atlas"))
   .catch(err => console.log("❌ MongoDB Atlas connection error:", err));
 
+// 🟢 Signup Route
 app.post('/signup', async (req, res) => {
   const { fullName, email, password } = req.body;
 
@@ -42,6 +39,7 @@ app.post('/signup', async (req, res) => {
   }
 });
 
+// 🟢 Login Route
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
@@ -66,6 +64,7 @@ app.post('/login', async (req, res) => {
   }
 });
 
+// ✅ Chat Route Using Nutritionix API
 app.post('/ask', async (req, res) => {
   const { question } = req.body;
 
@@ -74,19 +73,29 @@ app.post('/ask', async (req, res) => {
   }
 
   try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [{ role: "user", content: question }]
+    const response = await axios({
+      method: 'POST',
+      url: 'https://trackapi.nutritionix.com/v2/natural/nutrients',
+      headers: {
+        'x-app-id': process.env.NUTRITIONIX_APP_ID,
+        'x-app-key': process.env.NUTRITIONIX_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      data: { query: question }
     });
 
-    const botReply = completion.choices[0].message.content;
-    res.json({ answer: botReply });
+    const foodData = response.data.foods.map(food => {
+      return `${food.food_name} - ${food.nf_calories} calories, ${food.nf_protein}g protein, ${food.serving_qty} ${food.serving_unit}`;
+    }).join('\n');
+
+    res.json({ answer: foodData });
   } catch (error) {
-    console.error("OpenAI Error:", error.message);
-    res.status(500).json({ error: "Chatbot failed to respond." });
+    console.error("Nutritionix Error:", error.response?.data || error.message);
+    res.status(500).json({ error: "Could not fetch nutrition data." });
   }
 });
 
+// Server Start
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
