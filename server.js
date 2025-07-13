@@ -90,6 +90,19 @@ app.post('/ask', async (req, res) => {
   }
 });
 
+// ✅ Get all users for admin
+app.get('/admin/users', async (req, res) => {
+  try {
+    const users = await User.find();
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch users" });
+  }
+});
+
+
+
+
 // ✅ Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
