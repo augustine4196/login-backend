@@ -123,48 +123,71 @@ app.post('/ask', async (req, res) => {
   }
 });
 
-// ✅ Profile update route
+// ✅ Profile update route with enhanced error reporting
 app.post("/profile", async (req, res) => {
-  const { email, goal } = req.body;
-
-  if (!email) {
-    return res.status(400).json({ message: "Missing email." });
-  }
-  if (!goal) {
-    return res.status(400).json({ message: "Missing goal." });
-  }
-
   try {
+    const {
+      fullName,
+      email,
+      password,
+      gender,
+      age,
+      height,
+      weight,
+      place,
+      goal,
+      equipments
+    } = req.body;
+
+    // Log incoming body for debugging
+    console.log("📥 Received profile data:", req.body);
+
+    if (!email) {
+      return res.status(400).json({ message: "Missing email. Please go back to signup." });
+    }
+
+    if (!goal) {
+      return res.status(400).json({ message: "Missing goal. Please select a goal on the goal page." });
+    }
+
     const user = await User.findOne({ email });
 
     if (!user) {
-      return res.status(404).json({ message: "User not found." });
+      return res.status(404).json({ message: "User not found. Please register again." });
     }
 
-    // Check if any field is missing before updating
-    const missingFields = [];
-    if (!user.fullName) missingFields.push("fullName");
-    if (!user.password) missingFields.push("password");
-    if (!user.gender) missingFields.push("gender");
-    if (!user.age) missingFields.push("age");
-    if (!user.height) missingFields.push("height");
-    if (!user.weight) missingFields.push("weight");
-    if (!user.place) missingFields.push("place");
-    if (!user.equipments) missingFields.push("equipments");
+    // Determine what's missing (use request body instead of user document)
+    const requiredFields = { fullName, password, gender, age, height, weight, place, goal };
+    const missingFields = Object.entries(requiredFields)
+      .filter(([key, value]) => !value || value === "null" || value === "undefined")
+      .map(([key]) => key);
 
     if (missingFields.length > 0) {
       return res.status(400).json({
-        message: `Missing fields: ${missingFields.join(", ")}. Please go through the signup steps.`,
+        message: `Missing fields in request: ${missingFields.join(", ")}. These must be completed in the signup flow.`
       });
     }
 
+    // Update all fields
+    user.fullName = fullName;
+    user.password = password;
+    user.gender = gender;
+    user.age = age;
+    user.height = height;
+    user.weight = weight;
+    user.place = place;
     user.goal = goal;
-    await user.save();
 
-    res.json({ message: "Goal saved successfully!", user });
+    if (equipments) {
+      user.equipments = equipments;
+    }
+
+    await user.save();
+    res.json({ message: "✅ Profile and goal saved successfully!", user });
+
   } catch (error) {
-    console.error("Error updating goal:", error);
-    res.status(500).json({ message: "Server error while saving goal." });
+    console.error("❌ Error in /profile:", error);
+    res.status(500).json({ message: "Server error while saving profile. Please try again later." });
   }
 });
 
