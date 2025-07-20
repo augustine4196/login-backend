@@ -21,7 +21,9 @@ app.get("/", (req, res) => {
   res.send("✅ FitFlow backend is working!");
 });
 
-// ✅ Signup route
+// In server.js
+
+// ✅ UPDATED Signup route - now accepts everything at once
 app.post('/signup', async (req, res) => {
   const {
     fullName,
@@ -33,40 +35,48 @@ app.post('/signup', async (req, res) => {
     weight,
     place,
     equipments,
-    goal
+    goal,
+    profileImage // Accept the new field
   } = req.body;
 
   try {
-    if (!fullName || !email || !password) {
+    const sanitizedEmail = email.toLowerCase().trim();
+
+    if (!fullName || !sanitizedEmail || !password) {
       return res.status(400).json({ error: "Name, email, and password are required." });
     }
 
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: sanitizedEmail });
     if (existingUser) {
-      return res.status(400).json({ error: "Email already registered." });
+      return res.status(400).json({ error: "An account with this email already exists." });
     }
 
+    // ✅ THE FIX: Create the complete user object in one go.
     const newUser = new User({
       fullName,
-      email,
-      password,
+      email: sanitizedEmail,
+      password, // In a real app, hash this!
       gender,
       age,
       height,
       weight,
       place,
       equipments,
-      goal
+      goal,
+      profileImage // Save the profile image URL
     });
 
     await newUser.save();
-    res.status(200).json({ message: "Account created successfully!" });
+    res.status(201).json({ message: "Account created successfully!" }); // 201 = Created
+
   } catch (err) {
     console.error("❌ Signup error:", err);
     res.status(500).json({ error: "Signup failed. Please try again." });
   }
 });
 
+// The old /profile and /upload-profile-image routes are no longer needed for the signup flow.
+// You can keep them for users who want to EDIT their profile later.
 // ✅ Login route
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
