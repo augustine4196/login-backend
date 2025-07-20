@@ -81,7 +81,8 @@ app.post('/login', async (req, res) => {
     res.status(200).json({
       message: "Login successful!",
       fullName: user.fullName,
-      email: user.email
+      email: user.email,
+      profileImage: user.profileImage || null
     });
   } catch (err) {
     console.error("❌ Login error:", err);
@@ -123,7 +124,7 @@ app.post('/ask', async (req, res) => {
   }
 });
 
-// ✅ Profile update route with enhanced error reporting
+// ✅ Profile update route
 app.post("/profile", async (req, res) => {
   try {
     const {
@@ -139,7 +140,6 @@ app.post("/profile", async (req, res) => {
       equipments
     } = req.body;
 
-    // Log incoming body for debugging
     console.log("📥 Received profile data:", req.body);
 
     if (!email) {
@@ -156,7 +156,6 @@ app.post("/profile", async (req, res) => {
       return res.status(404).json({ message: "User not found. Please register again." });
     }
 
-    // Determine what's missing (use request body instead of user document)
     const requiredFields = { fullName, password, gender, age, height, weight, place, goal };
     const missingFields = Object.entries(requiredFields)
       .filter(([key, value]) => !value || value === "null" || value === "undefined")
@@ -168,7 +167,6 @@ app.post("/profile", async (req, res) => {
       });
     }
 
-    // Update all fields
     user.fullName = fullName;
     user.password = password;
     user.gender = gender;
@@ -191,8 +189,31 @@ app.post("/profile", async (req, res) => {
   }
 });
 
+// ✅ Save Cloudinary image URL for user
+app.post('/upload-profile-image', async (req, res) => {
+  try {
+    const { email, imageUrl } = req.body;
 
-// ✅ Get all users (admin)
+    if (!email || !imageUrl) {
+      return res.status(400).json({ error: "Missing email or imageUrl." });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    user.profileImage = imageUrl;
+    await user.save();
+
+    res.status(200).json({ message: "✅ Profile image saved successfully." });
+  } catch (err) {
+    console.error("❌ Error saving profile image:", err);
+    res.status(500).json({ error: "Failed to save profile image." });
+  }
+});
+
+// ✅ Admin route to get all users
 app.get('/admin/users', async (req, res) => {
   try {
     const users = await User.find();
