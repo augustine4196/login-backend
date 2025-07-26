@@ -18,15 +18,18 @@ const server = http.createServer(app);
 const { Server } = require("socket.io");
 // In server.js
 
+// In server.js
+
 const io = new Server(server, {
-  // --- FINAL FIX: Force WebSocket transport only ---
-  transports: ['websocket'], 
+  // --- FINAL FIX: Configure native Socket.IO heartbeat ---
+  pingInterval: 5000,   // Server sends a ping every 5 seconds
+  pingTimeout: 10000,   // Server waits 10 seconds for a pong response
+  transports: ['websocket'], // Continue forcing WebSocket
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
   }
 });
-
 // --- MIDDLEWARE ---
 app.use(cors());
 app.use(bodyParser.json());
