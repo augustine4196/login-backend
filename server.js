@@ -16,20 +16,15 @@ const app = express();
 const http = require('http');
 const server = http.createServer(app);
 const { Server } = require("socket.io");
-// In server.js
-
-// In server.js
-
 const io = new Server(server, {
-  // --- FINAL FIX: Configure native Socket.IO heartbeat ---
-  pingInterval: 5000,   // Server sends a ping every 5 seconds
-  pingTimeout: 10000,   // Server waits 10 seconds for a pong response
-  transports: ['websocket'], // Continue forcing WebSocket
+  // --- FINAL FIX: Use WebSocket transport and rely on custom heartbeat ---
+  transports: ['websocket'],
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
   }
 });
+
 // --- MIDDLEWARE ---
 app.use(cors());
 app.use(bodyParser.json());
@@ -46,9 +41,9 @@ io.on('connection', (socket) => {
     }
   });
 
-  // --- Heartbeat listener to keep connection alive ---
+  // --- FINAL FIX: Add the "pong" response for our custom heartbeat ---
   socket.on('ping', () => {
-    // console.log(`Ping received from ${socket.id}`); // Optional: uncomment for verbose debugging
+    socket.emit('pong'); // Respond back to the client to confirm the connection is alive
   });
 
   socket.on('disconnect', () => {
