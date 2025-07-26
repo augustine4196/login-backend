@@ -16,9 +16,11 @@ const app = express();
 const http = require('http');
 const server = http.createServer(app);
 const { Server } = require("socket.io");
+// In server.js
+
 const io = new Server(server, {
-  // --- FINAL FIX: Force a stable connection type ---
-  transports: ['polling'],
+  // --- FINAL FIX: Force WebSocket transport only ---
+  transports: ['websocket'], 
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
