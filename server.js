@@ -27,11 +27,6 @@ const io = new Server(server, {
 app.use(cors());
 app.use(bodyParser.json());
 
-// --- DATABASE CONNECTION ---
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ Connected to MongoDB Atlas"))
-  .catch(err => console.error("❌ MongoDB connection error:", err));
-
 // --- REAL-TIME LOGIC for In-App Notifications ---
 let onlineUsers = {};
 io.on('connection', (socket) => {
@@ -53,7 +48,8 @@ io.on('connection', (socket) => {
   });
 });
 
-// --- YOUR ORIGINAL API ROUTES (Copied Exactly) ---
+
+// --- ALL API ROUTES ARE DEFINED HERE ---
 
 // ✅ Root test route
 app.get("/", (req, res) => {
@@ -103,22 +99,50 @@ app.post('/login', async (req, res) => {
 });
 
 // ✅ GET user by email (used in search bar)
-app.get('/user/:email', async (req, res) => { /* ...your existing code... */ });
-app.post('/ask', async (req, res) => { /* ...your existing chatbot code... */ });
-app.post("/profile", async (req, res) => { /* ...your existing profile code... */ });
-app.post('/upload-profile-image', async (req, res) => { /* ...your existing image upload code... */ });
-app.get('/admin/users', async (req, res) => { /* ...your existing admin users code... */ });
+app.get('/user/:email', async (req, res) => {
+  try {
+    const email = req.params.email.toLowerCase().trim();
+    const user = await User.findOne({ email });
+    if (!user) { return res.status(404).json({ message: "User not found." }); }
+    res.json({ fullName: user.fullName, email: user.email, profileImage: user.profileImage || null });
+  } catch (err) {
+    console.error("❌ Error in /user/:email", err);
+    res.status(500).json({ message: "Server error." });
+  }
+});
 
-// --- PUSH NOTIFICATION ROUTES (Unchanged) ---
+// ✅ Admin: get all users
+app.get('/admin/users', async (req, res) => {
+  try {
+    const users = await User.find();
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch users." });
+  }
+});
+
+// ✅ PUSH NOTIFICATION ROUTES
 webpush.setVapidDetails(
   'mailto:your@email.com',
   'BJgQO8CvRLdcGr5LFA9qisfTLG8FwdvMLOFPaqX4rGi4bGSmOL-0RHKaWkuQg5GEyMDCfhEOuDxr2z1PwPg_2zM',
   'WbSlhUVA7xQImHjp00hxSA14t0V7l0cl7p7hCqPOpMA'
 );
 
-app.post('/subscribe', async (req, res) => { /* ...your existing subscribe code... */ });
+app.post('/subscribe', async (req, res) => {
+    const { email, subscription } = req.body;
+    try {
+        const user = await User.findOne({ email });
+        if (!user) return res.status(404).json({ error: 'User not found.' });
+        user.subscription = subscription;
+        await user.save();
+        res.status(201).json({ message: 'Subscription saved successfully.' });
+    } catch (err) {
+        console.error("❌ Error saving subscription:", err);
+        res.status(500).json({ error: 'Failed to save subscription.' });
+    }
+});
 
-// --- MODIFIED: /send-challenge route for HYBRID notifications ---
+// ✅ HYBRID /send-challenge route
 app.post('/send-challenge', async (req, res) => {
   const { fromName, toEmail } = req.body;
   try {
@@ -150,12 +174,40 @@ app.post('/send-challenge', async (req, res) => {
   }
 });
 
-// --- NEW: API routes for the dynamic notification page ---
-app.get('/notifications/:email', async (req, res) => { /* ...your notifications code... */ });
-app.post('/notifications/mark-read/:email', async (req, res) => { /* ...your mark-read code... */ });
-
-// --- FINAL SERVER STARTUP ---
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`🚀 Server with PUSH and IN-APP support running at http://localhost:${PORT}`);
+// ✅ API routes for the dynamic notification page
+app.get('/notifications/:email', async (req, res) => {
+    try {
+        const notifications = await Notification.find({ userEmail: req.params.email }).sort({ timestamp: -1 });
+        res.json(notifications);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch notifications.' });
+    }
 });
+app.post('/notifications/mark-read/:email', async (req, res) => {
+    try {
+        await Notification.updateMany({ userEmail: req.params.email, isRead: false }, { $set: { isRead: true } });
+        res.json({ message: 'All notifications marked as read.' });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to mark notifications as read.' });
+    }
+});
+
+
+// --- SERVER STARTUP (NEW ROBUST STRUCTURE) ---
+const PORT = process.env.PORT || 5000;
+
+// Step 1: Connect to the database
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => {
+    console.log("✅ Connected to MongoDB Atlas");
+    
+    // Step 2: Only after a successful DB connection, start the server.
+    server.listen(PORT, () => {
+      console.log(`🚀 Server with PUSH and IN-APP support running at http://localhost:${PORT}`);
+    });
+  })
+  .catch(err => {
+    // If the database fails to connect, log the error and stop the application.
+    console.error("❌ MongoDB connection error: Could not start server.", err);
+    process.exit(1);
+  });
