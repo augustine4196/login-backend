@@ -31,12 +31,21 @@ app.use(bodyParser.json());
 let onlineUsers = {};
 io.on('connection', (socket) => {
   console.log('✅ User connected for real-time events:', socket.id);
+
   socket.on('user_online', (userEmail) => {
     if (userEmail) {
       onlineUsers[userEmail] = socket.id;
       console.log('Online users:', onlineUsers);
     }
   });
+
+  // --- NEW: Heartbeat listener to keep connection alive ---
+  socket.on('ping', () => {
+    // This event listener's purpose is simply to receive a message.
+    // The act of receiving data keeps the WebSocket connection from being terminated by hosting providers.
+    // console.log(`Ping received from ${socket.id}`); // Optional: uncomment for verbose debugging
+  });
+
   socket.on('disconnect', () => {
     for (const email in onlineUsers) {
       if (onlineUsers[email] === socket.id) {
@@ -193,7 +202,7 @@ app.post('/notifications/mark-read/:email', async (req, res) => {
 });
 
 
-// --- SERVER STARTUP (NEW ROBUST STRUCTURE) ---
+// --- SERVER STARTUP (ROBUST STRUCTURE) ---
 const PORT = process.env.PORT || 5000;
 
 // Step 1: Connect to the database
