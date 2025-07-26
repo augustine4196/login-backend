@@ -12,50 +12,9 @@ const Notification = require('./models/Notification'); // For notification histo
 
 const app = express();
 
-// --- HTTP and Socket.IO Setup ---
-const http = require('http');
-const server = http.createServer(app);
-const { Server } = require("socket.io");
-const io = new Server(server, {
-  // --- FINAL FIX: Use WebSocket transport and rely on custom heartbeat ---
-  transports: ['websocket'],
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
-});
-
 // --- MIDDLEWARE ---
 app.use(cors());
 app.use(bodyParser.json());
-
-// --- REAL-TIME LOGIC for In-App Notifications ---
-let onlineUsers = {};
-io.on('connection', (socket) => {
-  console.log('✅ User connected for real-time events:', socket.id);
-
-  socket.on('user_online', (userEmail) => {
-    if (userEmail) {
-      onlineUsers[userEmail] = socket.id;
-      console.log('Online users:', onlineUsers);
-    }
-  });
-
-  // --- FINAL FIX: Add the "pong" response for our custom heartbeat ---
-  socket.on('ping', () => {
-    socket.emit('pong'); // Respond back to the client to confirm the connection is alive
-  });
-
-  socket.on('disconnect', () => {
-    for (const email in onlineUsers) {
-      if (onlineUsers[email] === socket.id) {
-        delete onlineUsers[email];
-        console.log(`User ${email} disconnected.`);
-        break;
-      }
-    }
-  });
-});
 
 
 // --- ALL API ROUTES ARE DEFINED HERE ---
@@ -151,7 +110,8 @@ app.post('/subscribe', async (req, res) => {
     }
 });
 
-// ✅ HYBRID /send-challenge route
+// ✅ SIMPLIFIED /send-challenge route
+// This route now only saves to the database and attempts a push notification.
 app.post('/send-challenge', async (req, res) => {
   const { fromName, toEmail } = req.body;
   try {
@@ -166,16 +126,14 @@ app.post('/send-challenge', async (req, res) => {
     });
     await newNotification.save();
     console.log("✅ Notification saved to DB.");
-    const recipientSocketId = onlineUsers[toEmail];
-    if (recipientSocketId) {
-      io.to(recipientSocketId).emit('receive_challenge', newNotification);
-      console.log("✅ Sent IN-APP notification.");
-    }
+    
+    // Attempt to send a PUSH notification if the user has a subscription
     if (recipient.subscription) {
       const payload = JSON.stringify({ title: 'New Challenge Received', message: `${fromName} has challenged you on FitFlow! 💪` });
       await webpush.sendNotification(recipient.subscription, payload);
       console.log("✅ Sent PUSH notification.");
     }
+
     res.status(200).json({ message: 'Challenge sent successfully.' });
   } catch (error) {
     console.error('❌ Error in /send-challenge:', error);
@@ -205,18 +163,16 @@ app.post('/notifications/mark-read/:email', async (req, res) => {
 // --- SERVER STARTUP (ROBUST STRUCTURE) ---
 const PORT = process.env.PORT || 5000;
 
-// Step 1: Connect to the database
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
     console.log("✅ Connected to MongoDB Atlas");
     
-    // Step 2: Only after a successful DB connection, start the server.
-    server.listen(PORT, () => {
-      console.log(`🚀 Server with PUSH and IN-APP support running at http://localhost:${PORT}`);
+    // Use the standard app.listen(), as we no longer need the http server wrapper
+    app.listen(PORT, () => {
+      console.log(`🚀 Server running at http://localhost:${PORT}`);
     });
   })
   .catch(err => {
-    // If the database fails to connect, log the error and stop the application.
     console.error("❌ MongoDB connection error: Could not start server.", err);
     process.exit(1);
   });
