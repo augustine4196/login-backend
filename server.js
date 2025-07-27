@@ -66,6 +66,41 @@ app.post('/login', async (req, res) => {
   }
 });
 
+// ✅ Chatbot route using OpenRouter
+app.post('/ask', async (req, res) => {
+  const { question } = req.body;
+
+  if (!question) {
+    return res.status(400).json({ error: "No question provided." });
+  }
+
+  try {
+    const response = await axios.post(
+      'https://openrouter.ai/api/v1/chat/completions',
+      {
+        model: 'mistralai/mistral-7b-instruct', // ✅ Free working model
+        messages: [{ role: 'user', content: question }]
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://fitflow.netlify.app/', // ✅ Your Netlify frontend
+          'X-Title': 'FitFlow Chat'
+        }
+      }
+    );
+
+    const botReply = response.data.choices[0].message.content;
+    res.json({ answer: botReply });
+
+  } catch (error) {
+    console.error("❌ OpenRouter Error:", error.response?.data || error.message);
+    res.status(500).json({ error: "Chatbot failed to respond." });
+  }
+});
+
+
 // ✅ GET user by email (used in search bar)
 app.get('/user/:email', async (req, res) => {
   try {
