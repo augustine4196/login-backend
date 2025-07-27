@@ -159,6 +159,25 @@ app.post('/notifications/mark-read/:email', async (req, res) => {
     }
 });
 
+// --- ADD THIS NEW ROUTE ---
+
+// GET the count of unread notifications for a user
+app.get('/notifications/unread-count/:email', async (req, res) => {
+    try {
+        const userEmail = req.params.email;
+        const count = await Notification.countDocuments({
+            userEmail: userEmail,
+            isRead: false 
+        });
+        res.status(200).json({ unreadCount: count });
+    } catch (error) {
+        console.error("❌ Error fetching unread count:", error);
+        res.status(500).json({ error: 'Failed to fetch unread count.' });
+    }
+});
+
+// --- Your existing /notifications/mark-read/:email route stays the same ---
+
 
 // --- SERVER STARTUP (ROBUST STRUCTURE) ---
 const PORT = process.env.PORT || 5000;
