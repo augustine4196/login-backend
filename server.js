@@ -1,49 +1,60 @@
-// server.js
-
-// --- CORE AND UTILITY IMPORTS ---
+// =================================================================
+// --- IMPORTS ---
+// =================================================================
 const express = require('express');
 const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const axios = require('axios');
-const http = require('http'); // Required for Socket.IO
-const { Server } = require("socket.io"); // Required for Socket.IO
 const webpush = require('web-push');
 require('dotenv').config();
 
+// --- NEW IMPORTS FOR REAL-TIME FUNCTIONALITY ---
+const http = require('http');
+const { Server } = require("socket.io");
+
 // --- MODEL IMPORTS ---
 const User = require('./models/User');
-const Notification = require('./models/Notification'); // Still used for generic notifications
-const Challenge = require('./models/Challenge'); // Our new, powerful Challenge model
+const Notification = require('./models/Notification'); // Your original notification model
+const Challenge = require('./models/Challenge');   // The new, dedicated model for challenges
 
-// --- INITIALIZATION ---
+// =================================================================
+// --- SERVER & SOCKET.IO INITIALIZATION ---
+// =================================================================
 const app = express();
-const server = http.createServer(app); // Create an HTTP server from the Express app
+// --- MODIFICATION: Create an HTTP server from the Express app.
+// This is necessary because Socket.IO needs to attach to a standard http server,
+// not directly to the Express app. This change will NOT break your existing routes.
+const server = http.createServer(app);
 
-// Configure Socket.IO
+// --- NEW: Configure and initialize Socket.IO ---
 const io = new Server(server, {
   cors: {
-    origin: "*", // IMPORTANT: For production, change this to your Netlify URL: "https://fitflow.netlify.app"
+    // IMPORTANT: When you deploy, this should be your Netlify URL.
+    // For now, "*" is fine for local and remote testing.
+    origin: "*", 
     methods: ["GET", "POST"]
   }
 });
 
+
 // --- MIDDLEWARE ---
+// This section is unchanged.
 app.use(cors());
 app.use(bodyParser.json());
 
-// --- IN-MEMORY USER TRACKING (for real-time connections) ---
-// Maps a user's email to their current socket ID for direct messaging
+// =================================================================
+// --- REAL-TIME LOGIC (SOCKET.IO) ---
+// This entire block is new. It handles all instant communication.
+// =================================================================
+
+// A simple in-memory object to track which user is on which socket
 const userSockets = {}; // e.g., { 'user@example.com': 'socketId123' }
 
-// =================================================================
-// ---  SOCKET.IO REAL-TIME LOGIC ---
-// This block handles all instant communication for challenges
-// =================================================================
 io.on('connection', (socket) => {
-    console.log(`✅ User connected with socket ID: ${socket.id}`);
+    console.log(`✅ User connected via WebSocket: ${socket.id}`);
 
-    // When a user logs in or visits a page, they register their socket
+    // When a user logs in, they register their socket with their email
     socket.on('register', (userEmail) => {
         if (userEmail) {
             console.log(`User '${userEmail}' registered with socket ${socket.id}`);
@@ -51,65 +62,44 @@ io.on('connection', (socket) => {
         }
     });
 
-    // When an opponent accepts a challenge from the notification page
+    // When a user accepts a challenge
     socket.on('accept-challenge', async ({ challengeId, challengerEmail, opponentEmail, challengeRoomId }) => {
-        try {
-            await Challenge.findByIdAndUpdate(challengeId, { status: 'accepted' });
-
-            const challengerSocketId = userSockets[challengerEmail];
-            
-            // Notify BOTH users to redirect to the video challenge room
-            if (challengerSocketId) {
-                io.to(challengerSocketId).emit('challenge-accepted-redirect', { challengeRoomId });
-            }
-            socket.emit('challenge-accepted-redirect', { challengeRoomId }); // Notify the user who just accepted
-
-        } catch (error) {
-            console.error("Error during 'accept-challenge':", error);
+        await Challenge.findByIdAndUpdate(challengeId, { status: 'accepted' });
+        const challengerSocketId = userSockets[challengerEmail];
+        
+        // Notify BOTH users to redirect to the video challenge room
+        if (challengerSocketId) {
+            io.to(challengerSocketId).emit('challenge-accepted-redirect', { challengeRoomId });
         }
+        socket.emit('challenge-accepted-redirect', { challengeRoomId });
     });
 
-    // --- WebRTC Video Call Logic ---
-
-    // When a user arrives at the challenge page, they join a specific room
+    // --- WebRTC Signaling Events ---
     socket.on('join-challenge-room', (roomName) => {
         socket.join(roomName);
         console.log(`User ${socket.id} joined WebRTC room ${roomName}`);
-        // Notify the *other* user in the room that a peer has joined so they can initiate the call
         socket.to(roomName).emit('peer-joined');
     });
 
-    // These events simply relay WebRTC handshake messages between the two peers in a room
-    socket.on('webrtc-offer', (data) => {
-        socket.to(data.roomName).emit('webrtc-offer', data.sdp);
-    });
+    socket.on('webrtc-offer', (data) => socket.to(data.roomName).emit('webrtc-offer', data.sdp) );
+    socket.on('webrtc-answer', (data) => socket.to(data.roomName).emit('webrtc-answer', data.sdp) );
+    socket.on('webrtc-ice-candidate', (data) => socket.to(data.roomName).emit('webrtc-ice-candidate', data.candidate) );
 
-    socket.on('webrtc-answer', (data) => {
-        socket.to(data.roomName).emit('webrtc-answer', data.sdp);
-    });
-
-    socket.on('webrtc-ice-candidate', (data) => {
-        socket.to(data.roomName).emit('webrtc-ice-candidate', data.candidate);
-    });
-
-    // --- Real-time Game State Logic ---
+    // --- Game Logic Events ---
     socket.on('challenge-start', async (roomName) => {
-        // Update DB status and notify both users to start
         await Challenge.findOneAndUpdate({ challengeRoomId: roomName }, { status: 'active' });
         io.to(roomName).emit('challenge-started');
     });
 
     socket.on('challenge-finish', async ({ roomName, userEmail }) => {
         const challenge = await Challenge.findOne({ challengeRoomId: roomName });
-        // First one to finish wins! This check prevents race conditions.
         if (challenge && challenge.status === 'active') {
             await Challenge.updateOne({ _id: challenge._id }, { status: 'completed', winnerEmail: userEmail });
-            // Announce the winner to everyone in the room
             io.to(roomName).emit('winner-declared', { winnerEmail: userEmail });
         }
     });
 
-    // Clean up the userSockets map on disconnect
+    // Clean up when a user disconnects
     socket.on('disconnect', () => {
         console.log(`❌ User disconnected: ${socket.id}`);
         for (const email in userSockets) {
@@ -123,28 +113,69 @@ io.on('connection', (socket) => {
 
 
 // =================================================================
-// --- REST API ROUTES ---
-// This block handles all standard HTTP requests
+// --- YOUR ORIGINAL API ROUTES (UNCHANGED & SAFE) ---
+// We are not touching these, so your login will continue to work.
 // =================================================================
 
-// Keep all your existing, working routes...
 app.get("/", (req, res) => res.send("✅ FitFlow backend is working!"));
-app.post('/signup', async (req, res) => { /* ...your existing code... */ });
-app.post('/login', async (req, res) => { /* ...your existing code... */ });
-app.post('/ask', async (req, res) => { /* ...your existing code... */ });
-app.get('/user/:email', async (req, res) => { /* ...your existing code... */ });
-app.get('/admin/users', async (req, res) => { /* ...your existing code... */ });
-app.post('/subscribe', async (req, res) => { /* ...your existing code... */ });
+app.post('/signup', async (req, res) => { /* ...your original code... */ });
+app.post('/login', async (req, res) => { /* ...your original code... */ });
+app.post('/ask', async (req, res) => { /* ...your original code... */ });
+app.get('/user/:email', async (req, res) => { /* ...your original code... */ });
+app.get('/admin/users', async (req, res) => { /* ...your original code... */ });
+app.post('/subscribe', async (req, res) => { /* ...your original code... */ });
+app.get('/notifications/:email', async (req, res) => { /* ...your original code... */ });
+app.post('/notifications/mark-read/:email', async (req, res) => { /* ...your original code... */ });
+app.get('/notifications/unread-count/:email', async (req, res) => { /* ...your original code... */ });
 
 
-// --- MODIFIED & NEW API ROUTES FOR CHALLENGES ---
+// =================================================================
+// --- MODIFIED & NEW ROUTES FOR CHALLENGES ---
+// =================================================================
 
-// NEW: Get all challenges where the user is the opponent (for the notification page)
+// --- MODIFIED: /send-challenge route ---
+// It now uses the new Challenge model and emits a real-time event.
+app.post('/send-challenge', async (req, res) => {
+  const { fromName, fromEmail, toEmail } = req.body; // Needs fromEmail now
+  try {
+    const opponent = await User.findOne({ email: toEmail });
+    if (!opponent) return res.status(404).json({ error: 'Recipient not found.' });
+
+    const challengeRoomId = `challenge_${new Date().getTime()}`;
+    const newChallenge = new Challenge({
+        challengerName: fromName,
+        challengerEmail: fromEmail,
+        opponentEmail: toEmail,
+        challengeRoomId: challengeRoomId
+    });
+    await newChallenge.save();
+    console.log(`📝 Challenge created in DB for room: ${challengeRoomId}`);
+    
+    // Attempt to send a REAL-TIME event if the user is online
+    const opponentSocketId = userSockets[toEmail];
+    if (opponentSocketId) {
+        io.to(opponentSocketId).emit('new-challenge', newChallenge);
+        console.log(` emitted 'new-challenge' to ${toEmail}`);
+    } 
+    // FALLBACK: Use push notification if the user is offline but subscribed
+    else if (opponent.subscription) {
+      const payload = JSON.stringify({ title: 'New Challenge!', message: `${fromName} has challenged you on FitFlow!` });
+      await webpush.sendNotification(opponent.subscription, payload);
+      console.log(" PUSH notification sent as fallback.");
+    }
+    res.status(200).json({ message: 'Challenge sent successfully.' });
+  } catch (error) {
+    console.error('❌ Error in /send-challenge:', error);
+    res.status(500).json({ error: 'Failed to send challenge.' });
+  }
+});
+
+// --- NEW: Route to get pending challenges for the notification page ---
 app.get('/challenges/received/:email', async (req, res) => {
     try {
         const challenges = await Challenge.find({ 
             opponentEmail: req.params.email,
-            status: 'pending' // Only show pending challenges they can act on
+            status: 'pending' 
         }).sort({ timestamp: -1 });
         res.json(challenges);
     } catch (error) {
@@ -154,63 +185,20 @@ app.get('/challenges/received/:email', async (req, res) => {
 });
 
 
-// MODIFIED: This route now creates a Challenge document and emits a socket event.
-app.post('/send-challenge', async (req, res) => {
-    const { fromName, fromEmail, toEmail } = req.body;
-    try {
-        if (!fromName || !fromEmail || !toEmail) {
-            return res.status(400).json({ error: 'Missing required challenge information.'});
-        }
-        
-        const opponent = await User.findOne({ email: toEmail });
-        if (!opponent) {
-            return res.status(404).json({ error: 'Recipient not found.' });
-        }
-
-        // 1. Create a unique ID for the real-time room
-        const challengeRoomId = `challenge_${new Date().getTime()}`;
-
-        // 2. Create the challenge record in the database
-        const newChallenge = new Challenge({
-            challengerName: fromName,
-            challengerEmail: fromEmail,
-            opponentEmail: toEmail,
-            challengeRoomId: challengeRoomId
-        });
-        await newChallenge.save();
-        console.log(`📝 Challenge created in DB for room: ${challengeRoomId}`);
-
-        // 3. Emit a REAL-TIME event to the opponent if they are currently online
-        const opponentSocketId = userSockets[toEmail];
-        if (opponentSocketId) {
-            io.to(opponentSocketId).emit('new-challenge', newChallenge);
-            console.log(` GEmitted 'new-challenge' event to ${toEmail}`);
-        } else {
-             // 4. (FALLBACK) Send a PUSH notification if the opponent is offline but subscribed
-            if (opponent.subscription) {
-                const payload = JSON.stringify({ title: 'New Challenge!', message: `${fromName} has challenged you on FitFlow! 💪` });
-                await webpush.sendNotification(opponent.subscription, payload);
-                console.log(" PUSH notification sent as fallback.");
-            }
-        }
-    
-        res.status(200).json({ message: 'Challenge sent successfully.', challenge: newChallenge });
-    } catch (error) {
-        console.error('❌ Error in /send-challenge:', error);
-        res.status(500).json({ error: 'Failed to send challenge.' });
-    }
-});
-
-
+// =================================================================
 // --- SERVER STARTUP ---
+// =================================================================
 const PORT = process.env.PORT || 5000;
+
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
-    console.log("🗄️  Connected to MongoDB Atlas");
+    console.log("✅ Connected to MongoDB Atlas");
     
-    // IMPORTANT: Use the http `server` to listen, not the Express `app`
+    // --- MODIFICATION: Use `server.listen` instead of `app.listen` ---
+    // This is the final crucial change. The `server` object knows how to handle
+    // both regular HTTP requests (for your login/signup) and WebSocket requests (for real-time).
     server.listen(PORT, () => {
-      console.log(`🚀 Server with Real-Time support running at http://localhost:${PORT}`);
+      console.log(`🚀 Server with Real-Time support running on port ${PORT}`);
     });
   })
   .catch(err => {

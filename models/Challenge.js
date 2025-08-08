@@ -7,13 +7,12 @@ const challengeSchema = new mongoose.Schema({
     opponentEmail: { type: String, required: true },
     status: { 
         type: String, 
-        enum: ['pending', 'accepted', 'declined', 'completed', 'active'], // Added 'active'
+        enum: ['pending', 'accepted', 'declined', 'active', 'completed'], 
         default: 'pending' 
     },
-    // This is the unique ID for the Socket.IO and WebRTC room
     challengeRoomId: { type: String, required: true, unique: true },
     winnerEmail: String,
-    exercise: { type: String, default: '20 Pushups' }, // You can make this dynamic later
+    exercise: { type: String, default: '20 Pushups' },
     timestamp: { type: Date, default: Date.now }
 });
 
