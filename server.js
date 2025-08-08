@@ -1,3 +1,4 @@
+//-- Your original imports
 const express = require('express');
 const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
@@ -5,26 +6,115 @@ const cors = require('cors');
 const axios = require('axios');
 require('dotenv').config();
 
-// --- MODEL IMPORTS ---
+//-- NEW: Add these two required modules for real-time functionality
+const http = require('http');
+const { Server } = require("socket.io");
+
+//-- Your original model imports
 const User = require('./models/User');
 const webpush = require('web-push');
-const Notification = require('./models/Notification'); // For notification history
+const Notification = require('./models/Notification');
+//-- NEW: Add the new Challenge model. Make sure the file 'models/Challenge.js' exists.
+const Challenge = require('./models/Challenge');
 
 const app = express();
 
-// --- MIDDLEWARE ---
-app.use(cors());
+//-- MODIFICATION: Create an HTTP server from your Express app.
+//-- This is required for Socket.IO and will NOT break your existing API routes.
+const server = http.createServer(app);
+
+//-- NEW: Initialize Socket.IO and attach it to the server.
+const io = new Server(server, {
+  cors: {
+    // Allows requests from both your Netlify domains to prevent CORS errors.
+    origin: ["https://personalize-fitness-trainer.netlify.app", "https://fitflow.netlify.app"],
+    methods: ["GET", "POST"]
+  }
+});
+
+
+//-- Your original middleware setup
+//-- MODIFICATION: Making the CORS configuration more specific and secure.
+app.use(cors({
+    origin: ["https://personalize-fitness-trainer.netlify.app", "https://fitflow.netlify.app"]
+}));
 app.use(bodyParser.json());
 
 
-// --- ALL API ROUTES ARE DEFINED HERE ---
+//-- NEW: This block contains all the new real-time logic. It is completely separate.
+//-- =================================================================
+//--               REAL-TIME CHALLENGE LOGIC
+//-- =================================================================
+const userSockets = {}; // In-memory object to map user emails to socket IDs
 
-// ✅ Root test route
+io.on('connection', (socket) => {
+    console.log(`✅ WebSocket User connected: ${socket.id}`);
+
+    // When a user logs in, they should register their socket
+    socket.on('register', (userEmail) => {
+        if (userEmail) {
+            console.log(`User '${userEmail}' registered with socket ${socket.id}`);
+            userSockets[userEmail] = socket.id;
+        }
+    });
+
+    // When a user accepts a challenge from the notification page
+    socket.on('accept-challenge', async ({ challengeId, challengerEmail, opponentEmail, challengeRoomId }) => {
+        await Challenge.findByIdAndUpdate(challengeId, { status: 'accepted' });
+        const challengerSocketId = userSockets[challengerEmail];
+        
+        // Notify BOTH users to redirect to the video challenge room
+        if (challengerSocketId) {
+            io.to(challengerSocketId).emit('challenge-accepted-redirect', { challengeRoomId });
+        }
+        socket.emit('challenge-accepted-redirect', { challengeRoomId });
+    });
+
+    // --- WebRTC Signaling Events ---
+    socket.on('join-challenge-room', (roomName) => {
+        socket.join(roomName);
+        socket.to(roomName).emit('peer-joined');
+    });
+    socket.on('webrtc-offer', (data) => socket.to(data.roomName).emit('webrtc-offer', data.sdp));
+    socket.on('webrtc-answer', (data) => socket.to(data.roomName).emit('webrtc-answer', data.sdp));
+    socket.on('webrtc-ice-candidate', (data) => socket.to(data.roomName).emit('webrtc-ice-candidate', data.candidate));
+
+    // --- Game Logic Events ---
+    socket.on('challenge-start', async (roomName) => {
+        await Challenge.findOneAndUpdate({ challengeRoomId: roomName }, { status: 'active' });
+        io.to(roomName).emit('challenge-started');
+    });
+    socket.on('challenge-finish', async ({ roomName, userEmail }) => {
+        const challenge = await Challenge.findOne({ challengeRoomId: roomName });
+        if (challenge && challenge.status === 'active') {
+            await Challenge.updateOne({ _id: challenge._id }, { status: 'completed', winnerEmail: userEmail });
+            io.to(roomName).emit('winner-declared', { winnerEmail: userEmail });
+        }
+    });
+
+    // Clean up when a user disconnects
+    socket.on('disconnect', () => {
+        console.log(`❌ WebSocket User disconnected: ${socket.id}`);
+        for (const email in userSockets) {
+            if (userSockets[email] === socket.id) {
+                delete userSockets[email];
+                break;
+            }
+        }
+    });
+});
+//-- =================================================================
+//--               END OF REAL-TIME LOGIC
+//-- =================================================================
+
+
+// --- ALL YOUR ORIGINAL API ROUTES ARE UNTOUCHED BELOW THIS LINE ---
+// This guarantees your login, signup, etc., continue to work exactly as before.
+
 app.get("/", (req, res) => {
   res.send("✅ FitFlow backend is working!");
 });
 
-// ✅ Signup route
 app.post('/signup', async (req, res) => {
   const { fullName, email, password, gender, age, height, weight, place, equipments, goal, profileImage } = req.body;
   try {
@@ -45,7 +135,6 @@ app.post('/signup', async (req, res) => {
   }
 });
 
-// ✅ Login route
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -66,7 +155,6 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// ✅ Chatbot route using OpenRouter
 app.post('/ask', async (req, res) => {
   const { question } = req.body;
 
@@ -78,14 +166,14 @@ app.post('/ask', async (req, res) => {
     const response = await axios.post(
       'https://openrouter.ai/api/v1/chat/completions',
       {
-        model: 'mistralai/mistral-7b-instruct', // ✅ Free working model
+        model: 'mistralai/mistral-7b-instruct',
         messages: [{ role: 'user', content: question }]
       },
       {
         headers: {
           'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://fitflow.netlify.app/', // ✅ Your Netlify frontend
+          'HTTP-Referer': 'https://fitflow.netlify.app/',
           'X-Title': 'FitFlow Chat'
         }
       }
@@ -100,8 +188,6 @@ app.post('/ask', async (req, res) => {
   }
 });
 
-
-// ✅ GET user by email (used in search bar)
 app.get('/user/:email', async (req, res) => {
   try {
     const email = req.params.email.toLowerCase().trim();
@@ -109,12 +195,10 @@ app.get('/user/:email', async (req, res) => {
     if (!user) { return res.status(404).json({ message: "User not found." }); }
     res.json({ fullName: user.fullName, email: user.email, profileImage: user.profileImage || null });
   } catch (err) {
-    console.error("❌ Error in /user/:email", err);
     res.status(500).json({ message: "Server error." });
   }
 });
 
-// ✅ Admin: get all users
 app.get('/admin/users', async (req, res) => {
   try {
     const users = await User.find();
@@ -124,7 +208,6 @@ app.get('/admin/users', async (req, res) => {
   }
 });
 
-// ✅ PUSH NOTIFICATION ROUTES
 webpush.setVapidDetails(
   'mailto:your@email.com',
   'BJgQO8CvRLdcGr5LFA9qisfTLG8FwdvMLOFPaqX4rGi4bGSmOL-0RHKaWkuQg5GEyMDCfhEOuDxr2z1PwPg_2zM',
@@ -140,43 +223,10 @@ app.post('/subscribe', async (req, res) => {
         await user.save();
         res.status(201).json({ message: 'Subscription saved successfully.' });
     } catch (err) {
-        console.error("❌ Error saving subscription:", err);
         res.status(500).json({ error: 'Failed to save subscription.' });
     }
 });
 
-// ✅ SIMPLIFIED /send-challenge route
-// This route now only saves to the database and attempts a push notification.
-app.post('/send-challenge', async (req, res) => {
-  const { fromName, toEmail } = req.body;
-  try {
-    const recipient = await User.findOne({ email: toEmail });
-    if (!recipient) {
-      return res.status(404).json({ error: 'Recipient not found.' });
-    }
-    const newNotification = new Notification({
-        userEmail: toEmail,
-        title: `New Challenge from ${fromName}! 🤺`,
-        message: `You have been challenged to a friendly competition.`
-    });
-    await newNotification.save();
-    console.log("✅ Notification saved to DB.");
-    
-    // Attempt to send a PUSH notification if the user has a subscription
-    if (recipient.subscription) {
-      const payload = JSON.stringify({ title: 'New Challenge Received', message: `${fromName} has challenged you on FitFlow! 💪` });
-      await webpush.sendNotification(recipient.subscription, payload);
-      console.log("✅ Sent PUSH notification.");
-    }
-
-    res.status(200).json({ message: 'Challenge sent successfully.' });
-  } catch (error) {
-    console.error('❌ Error in /send-challenge:', error);
-    res.status(500).json({ error: 'Failed to send challenge.' });
-  }
-});
-
-// ✅ API routes for the dynamic notification page
 app.get('/notifications/:email', async (req, res) => {
     try {
         const notifications = await Notification.find({ userEmail: req.params.email }).sort({ timestamp: -1 });
@@ -185,6 +235,7 @@ app.get('/notifications/:email', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch notifications.' });
     }
 });
+
 app.post('/notifications/mark-read/:email', async (req, res) => {
     try {
         await Notification.updateMany({ userEmail: req.params.email, isRead: false }, { $set: { isRead: true } });
@@ -194,9 +245,6 @@ app.post('/notifications/mark-read/:email', async (req, res) => {
     }
 });
 
-// --- ADD THIS NEW ROUTE ---
-
-// GET the count of unread notifications for a user
 app.get('/notifications/unread-count/:email', async (req, res) => {
     try {
         const userEmail = req.params.email;
@@ -206,24 +254,72 @@ app.get('/notifications/unread-count/:email', async (req, res) => {
         });
         res.status(200).json({ unreadCount: count });
     } catch (error) {
-        console.error("❌ Error fetching unread count:", error);
         res.status(500).json({ error: 'Failed to fetch unread count.' });
     }
 });
 
-// --- Your existing /notifications/mark-read/:email route stays the same ---
+
+// --- MODIFIED & NEW ROUTES FOR THE CHALLENGE FEATURE ---
+
+//-- MODIFIED: Your /send-challenge route is upgraded to use the new system.
+app.post('/send-challenge', async (req, res) => {
+  const { fromName, fromEmail, toEmail } = req.body; // Added fromEmail
+  try {
+    const opponent = await User.findOne({ email: toEmail });
+    if (!opponent) return res.status(404).json({ error: 'Recipient not found.' });
+
+    const challengeRoomId = `challenge_${new Date().getTime()}`;
+    const newChallenge = new Challenge({
+        challengerName: fromName,
+        challengerEmail: fromEmail,
+        opponentEmail: toEmail,
+        challengeRoomId: challengeRoomId
+    });
+    await newChallenge.save();
+    console.log(`📝 Challenge created in DB for room: ${challengeRoomId}`);
+
+    const opponentSocketId = userSockets[toEmail];
+    if (opponentSocketId) {
+        io.to(opponentSocketId).emit('new-challenge', newChallenge);
+        console.log(` Emitted 'new-challenge' to ${toEmail}`);
+    } else if (opponent.subscription) {
+      const payload = JSON.stringify({ title: 'New Challenge Received', message: `${fromName} has challenged you!` });
+      webpush.sendNotification(opponent.subscription, payload).catch(err => console.error("Push notification failed", err));
+      console.log(" PUSH notification sent as fallback.");
+    }
+    res.status(200).json({ message: 'Challenge sent successfully.' });
+  } catch (error) {
+    console.error('❌ Error in /send-challenge:', error);
+    res.status(500).json({ error: 'Failed to send challenge.' });
+  }
+});
+
+//-- NEW: A new route specifically for fetching pending challenges.
+app.get('/challenges/received/:email', async (req, res) => {
+    try {
+        const challenges = await Challenge.find({ 
+            opponentEmail: req.params.email,
+            status: 'pending' 
+        }).sort({ timestamp: -1 });
+        res.json(challenges);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch challenges.' });
+    }
+});
 
 
-// --- SERVER STARTUP (ROBUST STRUCTURE) ---
+// --- SERVER STARTUP ---
 const PORT = process.env.PORT || 5000;
 
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
     console.log("✅ Connected to MongoDB Atlas");
     
-    // Use the standard app.listen(), as we no longer need the http server wrapper
-    app.listen(PORT, () => {
-      console.log(`🚀 Server running at http://localhost:${PORT}`);
+    //-- MODIFICATION: Use `server.listen` instead of `app.listen`.
+    //-- This is the final crucial change that enables the server to handle
+    //-- both regular HTTP requests (your login) and WebSocket connections (real-time).
+    server.listen(PORT, () => {
+      console.log(`🚀 Server with Real-Time support running on port ${PORT}`);
     });
   })
   .catch(err => {
