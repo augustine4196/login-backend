@@ -3,29 +3,25 @@
 // =================================================================
 const express = require('express');
 const mongoose = require('mongoose');
-const bodyParser = require('body-parser');
 const cors = require('cors');
 const axios = require('axios');
 require('dotenv').config();
 
-// Required modules for the correct server structure
 const http = require('http');
 const { Server } = require("socket.io");
 
-// Model imports
 const User = require('./models/User');
 const Notification = require('./models/Notification');
 const Challenge = require('./models/Challenge');
 
 // =================================================================
 // --- 2. INITIALIZATION ---
-// This is the most robust and standard way to set up the server.
 // =================================================================
 const app = express();
-const server = http.createServer(app); // Create the HTTP server from Express
-const io = new Server(server, { // Attach Socket.IO to the server immediately
+const server = http.createServer(app);
+const io = new Server(server, {
     cors: {
-        origin: "*", // Allows access from your Netlify sites and localhost
+        origin: "*", // Allows access from any origin
     }
 });
 
@@ -33,21 +29,25 @@ const io = new Server(server, { // Attach Socket.IO to the server immediately
 // --- 3. MIDDLEWARE ---
 // =================================================================
 app.use(cors());
-app.use(bodyParser.json());
+
+// --- CRITICAL FIX FOR LOGIN ---
+// This is the modern replacement for bodyParser.json(). It is required for your server
+// to understand the JSON data (email, password) sent from the login form.
+app.use(express.json()); 
+app.use(express.urlencoded({ extended: true }));
 
 // This object will track online users.
 const userSockets = {};
 
 // =================================================================
 // --- 4. REAL-TIME EVENT LISTENERS (SOCKET.IO) ---
-// This section handles all direct WebSocket communication.
 // =================================================================
 io.on('connection', (socket) => {
     console.log(`✅ WebSocket User connected: ${socket.id}`);
     
     socket.on('register', (userEmail) => {
         if (userEmail) {
-            socket.userEmail = userEmail; // Associate email with the socket instance
+            socket.userEmail = userEmail;
             userSockets[userEmail] = socket.id;
             console.log(`User '${userEmail}' registered. Online users:`, Object.keys(userSockets));
         }
@@ -57,7 +57,6 @@ io.on('connection', (socket) => {
         if (socket.userEmail) {
             delete userSockets[socket.userEmail];
             console.log(`❌ User '${socket.userEmail}' disconnected. Online users:`, Object.keys(userSockets));
-            // Notify other user in a room if they disconnect mid-challenge
             if (socket.roomName) {
                 socket.to(socket.roomName).emit('peer-disconnected');
             }
@@ -76,7 +75,7 @@ io.on('connection', (socket) => {
 
     // --- WebRTC Signaling Listeners ---
     socket.on('join-challenge-room', (roomName) => {
-        socket.roomName = roomName; // Associate room with socket for disconnect logic
+        socket.roomName = roomName;
         socket.join(roomName);
         socket.to(roomName).emit('peer-joined');
     });
@@ -93,14 +92,50 @@ io.on('connection', (socket) => {
 
 // =================================================================
 // --- 5. API ROUTES (EXPRESS) ---
-// ALL your original routes are here, 100% UNCHANGED in their logic.
-// They are defined before the server starts, which is the correct way.
 // =================================================================
 
 app.get("/", (req, res) => res.send("✅ FitFlow backend is working!"));
 
-app.post('/signup', async (req, res) => { /* ...your full, original signup code... */ });
-app.post('/login', async (req, res) => { /* ...your full, original login code... */ });
+app.post('/signup', async (req, res) => {
+  const { fullName, email, password, gender, age, height, weight, place, equipments, goal, profileImage } = req.body;
+  try {
+    const sanitizedEmail = email.toLowerCase().trim();
+    if (!fullName || !sanitizedEmail || !password) {
+      return res.status(400).json({ error: "Name, email, and password are required." });
+    }
+    const existingUser = await User.findOne({ email: sanitizedEmail });
+    if (existingUser) {
+      return res.status(400).json({ error: "An account with this email already exists." });
+    }
+    const newUser = new User({ fullName, email: sanitizedEmail, password, gender, age, height, weight, place, equipments, goal, profileImage });
+    await newUser.save();
+    res.status(201).json({ message: "Account created successfully!" });
+  } catch (err) {
+    console.error("❌ Signup error:", err);
+    res.status(500).json({ error: "Signup failed. Please try again." });
+  }
+});
+
+app.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (!user) return res.status(401).json({ error: "User not found." });
+    if (String(user.password) !== String(password)) {
+      return res.status(401).json({ error: "Incorrect password." });
+    }
+    res.status(200).json({
+      message: "Login successful!",
+      fullName: user.fullName,
+      email: user.email,
+      profileImage: user.profileImage || null
+    });
+  } catch (err) {
+    console.error("❌ Login error:", err);
+    res.status(500).json({ error: "Login failed. Please try again." });
+  }
+});
+
 app.post('/ask', async (req, res) => { /* ...your full, original ask code... */ });
 app.get('/user/:email', async (req, res) => { /* ...your full, original user code... */ });
 app.post('/subscribe', async (req, res) => { /* ...your full, original subscribe code... */ });
@@ -155,12 +190,11 @@ app.post('/send-challenge', async (req, res) => {
 // =================================================================
 // --- 6. SERVER STARTUP ---
 // =================================================================
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 10000;
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
     console.log("✅ Connected to MongoDB Atlas");
     
-    // Use `server.listen` because our server is the `http` instance which handles both protocols.
     server.listen(PORT, () => {
       console.log(`🚀 Server (HTTP + WebSocket) running on port ${PORT}`);
     });
