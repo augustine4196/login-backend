@@ -21,8 +21,14 @@ const Challenge = require('./models/Challenge');
 // --- 2. INITIALIZATION & MIDDLEWARE ---
 // =================================================================
 const app = express();
-// Using your original middleware which is proven to work for you.
-app.use(cors());
+
+// Replace your original cors line with this more explicit one
+app.use(cors({
+  origin: "*", // This allows all origins
+  methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS", // Explicitly allow methods
+  allowedHeaders: "Content-Type, Authorization" // Explicitly allow headers
+}));
+
 app.use(bodyParser.json());
 
 
