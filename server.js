@@ -22,7 +22,7 @@ const Challenge = require('./models/Challenge');
 // =================================================================
 const app = express();
 
-// Replace your original cors line with this more explicit one
+// Correct, explicit CORS configuration to allow all origins
 app.use(cors({
   origin: "*", // This allows all origins
   methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS", // Explicitly allow methods
@@ -33,8 +33,7 @@ app.use(bodyParser.json());
 
 
 // =================================================================
-// --- 3. ALL ORIGINAL API ROUTES (UNCHANGED) ---
-// This guarantees your login, user search, etc., will work.
+// --- 3. API ROUTES ---
 // =================================================================
 
 app.get("/", (req, res) => {
@@ -81,7 +80,35 @@ app.post('/login', async (req, res) => {
   }
 });
 
-app.post('/ask', async (req, res) => { /* ...your full, original ask code... */ });
+// =================================================================
+// --- ⭐️ UPDATED AND CORRECTED CHATBOT ROUTE ⭐️ ---
+// =================================================================
+app.post('/ask', async (req, res) => {
+  const { question } = req.body; // Get the question from the request
+
+  // Validate that a question was actually sent
+  if (!question) {
+    return res.status(400).json({ error: 'No question provided.' });
+  }
+
+  try {
+    // --- AI LOGIC GOES HERE ---
+    // For now, we'll just create a simple response to prove the connection works.
+    // You can replace this line with your actual call to an AI service (like OpenAI).
+    const botResponse = `You asked: "${question}". The connection is working! Now you can add your real AI logic.`;
+
+    // Send the response back in the format the frontend expects
+    res.status(200).json({ answer: botResponse });
+
+  } catch (error) {
+    console.error("❌ Error in /ask route:", error);
+    // If anything goes wrong, send a clear error message
+    res.status(500).json({ error: "Something went wrong while processing your question." });
+  }
+});
+// =================================================================
+
+
 app.get('/user/:email', async (req, res) => { /* ...your full, original user code... */ });
 app.get('/admin/users', async (req, res) => {
     try {
@@ -108,7 +135,6 @@ app.get('/challenges/received/:email', async (req, res) => {
 
 // =================================================================
 // --- 4. SERVER STARTUP AND REAL-TIME INTEGRATION ---
-// This is the safe and stable way to add real-time features.
 // =================================================================
 const PORT = process.env.PORT || 10000;
 
@@ -130,7 +156,7 @@ async function startServer() {
         // Define all real-time logic
         io.on('connection', (socket) => {
             console.log(`✅ WebSocket User connected: ${socket.id}`);
-            
+
             socket.on('register', (userEmail) => {
                 if(userEmail) {
                     socket.userEmail = userEmail;
@@ -146,7 +172,7 @@ async function startServer() {
                     }
                 }
             });
-            
+
             // Challenge Flow Listeners
             socket.on('accept-challenge', async ({ challengeId, challengerEmail, challengeRoomId }) => {
                 await Challenge.findByIdAndUpdate(challengeId, { status: 'accepted' });
@@ -187,12 +213,12 @@ async function startServer() {
                     challengeRoomId: `challenge_${new Date().getTime()}`
                 });
                 await newChallenge.save();
-                
+
                 const opponentSocketId = userSockets[toEmail];
                 if (opponentSocketId) {
                     io.to(opponentSocketId).emit('new-challenge', newChallenge);
                 }
-                
+
                 res.status(200).json({ message: 'Challenge sent successfully.' });
             } catch (error) {
                 res.status(500).json({ error: 'Failed to send challenge.' });
