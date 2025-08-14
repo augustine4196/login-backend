@@ -33,7 +33,7 @@ app.use(bodyParser.json());
 
 
 // =================================================================
-// --- 3. ALL API ROUTES (FULLY IMPLEMENTED) ---
+// --- 3. ALL API ROUTES (UNCHANGED) ---
 // =================================================================
 
 app.get("/", (req, res) => {
@@ -167,7 +167,7 @@ app.get('/challenges/received/:email', async (req, res) => {
 
 
 // =================================================================
-// --- 4. SERVER STARTUP AND REAL-TIME INTEGRATION (UNCHANGED) ---
+// --- 4. SERVER STARTUP AND REAL-TIME INTEGRATION ---
 // =================================================================
 const PORT = process.env.PORT || 10000;
 
@@ -185,8 +185,10 @@ async function startServer() {
         });
 
         const userSockets = {};
+        // ⭐ 1. ADDED state object to track ready players in each room.
+        const challengeRooms = {};
 
-        // All real-time logic remains the same
+        // All real-time logic goes inside the connection handler
         io.on('connection', (socket) => {
             console.log(`✅ WebSocket User connected: ${socket.id}`);
             
@@ -198,13 +200,26 @@ async function startServer() {
                 }
             });
 
+            // ⭐ 3. UPDATED disconnect handler to include cleanup logic.
             socket.on('disconnect', () => {
                 if(socket.userEmail) {
                     delete userSockets[socket.userEmail];
-                    if (socket.roomName) {
-                        socket.to(socket.roomName).emit('peer-disconnected');
-                    }
                     console.log(`User ${socket.userEmail} disconnected.`);
+                }
+                // Also handle disconnecting from a challenge room
+                if (socket.roomName) {
+                    socket.to(socket.roomName).emit('peer-disconnected');
+
+                    // Clean up the ready state for the room
+                    if (challengeRooms[socket.roomName]) {
+                        challengeRooms[socket.roomName].readyPlayers.delete(socket.id);
+                        console.log(`Cleaned up ready state for player ${socket.id} in room ${socket.roomName}.`);
+                        // Optional: If the room is now empty, delete it
+                        if (challengeRooms[socket.roomName].readyPlayers.size === 0) {
+                            delete challengeRooms[socket.roomName];
+                            console.log(`Room ${socket.roomName} is now empty and has been removed from state.`);
+                        }
+                    }
                 }
             });
             
@@ -236,6 +251,26 @@ async function startServer() {
             socket.on('webrtc-offer', (data) => socket.to(data.roomName).emit('webrtc-offer', data.sdp));
             socket.on('webrtc-answer', (data) => socket.to(data.roomName).emit('webrtc-answer', data.sdp));
             socket.on('webrtc-ice-candidate', (data) => socket.to(data.roomName).emit('webrtc-ice-candidate', data.candidate));
+
+            // ⭐ 2. ADDED listener for the new 'player-ready' event.
+            socket.on('player-ready', (roomName) => {
+                // Ensure the room exists in our state tracker
+                if (!challengeRooms[roomName]) {
+                    // Using a Set ensures we don't count the same player twice
+                    challengeRooms[roomName] = { readyPlayers: new Set() };
+                }
+                
+                // Add the current player's socket ID to the ready set
+                challengeRooms[roomName].readyPlayers.add(socket.id);
+                console.log(`Player ${socket.id} in room ${roomName} has signaled they are ready.`);
+
+                // Check if both players are now ready
+                if (challengeRooms[roomName].readyPlayers.size === 2) {
+                    console.log(`Both players in room ${roomName} are ready. Notifying clients.`);
+                    // Notify everyone in the room to enable their start buttons
+                    io.to(roomName).emit('all-players-ready');
+                }
+            });
 
             // AI Game Sync
             socket.on('start-game', ({ roomName, winningScore }) => io.to(roomName).emit('game-start-sync', winningScore));
