@@ -81,21 +81,18 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// --- Chatbot Route (MODIFIED TO USE OPENROUTER API) ---
+// --- Chatbot Route (UPDATED WITH ROBUST ERROR HANDLING) ---
 app.post('/ask', async (req, res) => {
   const { question } = req.body;
-
-  // 1. Validation: Check if a question was provided
   if (!question) {
     return res.status(400).json({ error: 'No question provided.' });
   }
 
   try {
-    // 2. Make an API call to OpenRouter
     const response = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
-        model: "google/gemma-7b-it:free", // Using a high-quality free model
+        model: "google/gemma-7b-it:free",
         messages: [
           { role: "system", content: "You are a friendly and helpful fitness assistant. Provide concise and accurate information about workouts, nutrition, and general health." },
           { role: "user", content: question }
@@ -103,21 +100,25 @@ app.post('/ask', async (req, res) => {
       },
       {
         headers: {
-          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`, // Securely uses your API key
+          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json'
         }
       }
     );
 
-    // 3. Extract the AI's answer from the API response
-    const botResponse = response.data.choices[0].message.content;
-
-    // 4. Send the AI's answer back to your front-end
-    res.status(200).json({ answer: botResponse });
+    // Safety Check: Ensure the API response has the expected structure.
+    if (response.data && response.data.choices && response.data.choices.length > 0 && response.data.choices[0].message) {
+      const botResponse = response.data.choices[0].message.content;
+      res.status(200).json({ answer: botResponse });
+    } else {
+      // If the structure is valid but unexpected (e.g., empty choices array).
+      console.error("❌ Unexpected API response structure:", response.data);
+      res.status(500).json({ error: "Received an invalid response from the AI service." });
+    }
 
   } catch (error) {
-    // 5. Handle potential errors from the API call
-    console.error("❌ Error calling OpenRouter API:", error.response ? error.response.data : error.message);
+    // This enhanced error log will show us exactly what the API is sending back on failure.
+    console.error("❌ Error calling OpenRouter API:", error.response ? JSON.stringify(error.response.data, null, 2) : error.message);
     res.status(500).json({ error: "Sorry, I couldn't get a response from the AI assistant right now." });
   }
 });
