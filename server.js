@@ -33,7 +33,7 @@ app.use(bodyParser.json());
 
 
 // =================================================================
-// --- 3. ALL API ROUTES (UNCHANGED) ---
+// --- 3. ALL API ROUTES (CHATBOT LOGIC IS NOW FIXED) ---
 // =================================================================
 
 app.get("/", (req, res) => {
@@ -81,31 +81,53 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// --- Chatbot Route ---
+// --- Chatbot Route (MODIFIED) ---
 app.post('/ask', async (req, res) => {
   const { question } = req.body;
   if (!question) {
     return res.status(400).json({ error: 'No question provided.' });
   }
   try {
-    // ⭐ Future AI logic will go here. For now, it confirms the connection.
-    const botResponse = `You asked: "${question}". The connection is working!`;
+    // Convert the user's question to lowercase for easier keyword matching
+    const lowerCaseQuestion = question.toLowerCase();
+    let botResponse = "I'm sorry, I'm not sure how to answer that. Try asking about workouts, nutrition, or building muscle!";
+
+    // --- Simple Keyword-Based AI Logic ---
+    if (lowerCaseQuestion.includes('hello') || lowerCaseQuestion.includes('hi')) {
+        botResponse = "Hello! How can I help you with your fitness goals today?";
+    } else if (lowerCaseQuestion.includes('how are you')) {
+        botResponse = "I'm just a program, but I'm ready to assist you! What's on your mind?";
+    } else if (lowerCaseQuestion.includes('workout') || lowerCaseQuestion.includes('exercise')) {
+        botResponse = "For a great full-body workout, try combining squats, push-ups, and planks. What muscle group are you targeting?";
+    } else if (lowerCaseQuestion.includes('build muscle')) {
+        botResponse = "To build muscle, focus on progressive overload (lifting heavier over time) and ensure you're eating enough protein. Aim for 1.6-2.2 grams of protein per kg of body weight.";
+    } else if (lowerCaseQuestion.includes('lose weight') || lowerCaseQuestion.includes('fat loss')) {
+        botResponse = "Weight loss is primarily about maintaining a consistent calorie deficit. Combining a healthy diet with regular cardiovascular exercise like running or cycling is very effective.";
+    } else if (lowerCaseQuestion.includes('nutrition') || lowerCaseQuestion.includes('what should i eat')) {
+        botResponse = "A balanced diet is key. Make sure to include lean proteins, complex carbohydrates, healthy fats, and plenty of vegetables in your meals.";
+    } else if (lowerCaseQuestion.includes('protein')) {
+        botResponse = "Excellent sources of protein include chicken breast, fish, eggs, tofu, lentils, and Greek yogurt. They are essential for muscle repair and growth.";
+    } else if (lowerCaseQuestion.includes('thank you') || lowerCaseQuestion.includes('thanks')) {
+        botResponse = "You're welcome! Let me know if you have any other questions.";
+    }
+    
+    // Send the determined response
     res.status(200).json({ answer: botResponse });
+
   } catch (error) {
     console.error("❌ Error in /ask route:", error);
     res.status(500).json({ error: "Something went wrong while processing your question." });
   }
 });
 
-// --- User Data Routes (USER SEARCH IS NOW FIXED) ---
+// --- User Data Routes (UNCHANGED) ---
 app.get('/user/:email', async (req, res) => {
     try {
-        // Find user by email, but exclude the password field for security.
         const user = await User.findOne({ email: req.params.email }).select('-password');
         if (!user) {
             return res.status(404).json({ error: 'User not found.' });
         }
-        res.json(user); // Send back the user data as JSON.
+        res.json(user);
     } catch (err) {
         console.error("❌ Error fetching user:", err);
         res.status(500).json({ error: 'Failed to fetch user data.' });
@@ -121,10 +143,8 @@ app.get('/admin/users', async (req, res) => {
     }
 });
 
-// --- Notification Routes (FULLY RESTORED) ---
+// --- Notification Routes (UNCHANGED) ---
 app.post('/subscribe', async (req, res) => {
-    // This is a placeholder for web push notification logic.
-    // For now, it just confirms the request was received.
     res.status(200).json({ message: 'Subscription endpoint is active.' });
 });
 
@@ -155,7 +175,7 @@ app.get('/notifications/unread-count/:email', async (req, res) => {
     }
 });
 
-// --- Challenge Routes ---
+// --- Challenge Routes (UNCHANGED) ---
 app.get('/challenges/received/:email', async (req, res) => {
     try {
         const challenges = await Challenge.find({ opponentEmail: req.params.email, status: 'pending' }).sort({ timestamp: -1 });
@@ -167,7 +187,7 @@ app.get('/challenges/received/:email', async (req, res) => {
 
 
 // =================================================================
-// --- 4. SERVER STARTUP AND REAL-TIME INTEGRATION ---
+// --- 4. SERVER STARTUP AND REAL-TIME INTEGRATION (UNCHANGED) ---
 // =================================================================
 const PORT = process.env.PORT || 10000;
 
@@ -185,10 +205,8 @@ async function startServer() {
         });
 
         const userSockets = {};
-        // ⭐ 1. ADDED state object to track ready players in each room.
         const challengeRooms = {};
 
-        // All real-time logic goes inside the connection handler
         io.on('connection', (socket) => {
             console.log(`✅ WebSocket User connected: ${socket.id}`);
             
@@ -200,24 +218,17 @@ async function startServer() {
                 }
             });
 
-            // ⭐ 3. UPDATED disconnect handler to include cleanup logic.
             socket.on('disconnect', () => {
                 if(socket.userEmail) {
                     delete userSockets[socket.userEmail];
                     console.log(`User ${socket.userEmail} disconnected.`);
                 }
-                // Also handle disconnecting from a challenge room
                 if (socket.roomName) {
                     socket.to(socket.roomName).emit('peer-disconnected');
-
-                    // Clean up the ready state for the room
                     if (challengeRooms[socket.roomName]) {
                         challengeRooms[socket.roomName].readyPlayers.delete(socket.id);
-                        console.log(`Cleaned up ready state for player ${socket.id} in room ${socket.roomName}.`);
-                        // Optional: If the room is now empty, delete it
                         if (challengeRooms[socket.roomName].readyPlayers.size === 0) {
                             delete challengeRooms[socket.roomName];
-                            console.log(`Room ${socket.roomName} is now empty and has been removed from state.`);
                         }
                     }
                 }
@@ -252,22 +263,12 @@ async function startServer() {
             socket.on('webrtc-answer', (data) => socket.to(data.roomName).emit('webrtc-answer', data.sdp));
             socket.on('webrtc-ice-candidate', (data) => socket.to(data.roomName).emit('webrtc-ice-candidate', data.candidate));
 
-            // ⭐ 2. ADDED listener for the new 'player-ready' event.
             socket.on('player-ready', (roomName) => {
-                // Ensure the room exists in our state tracker
                 if (!challengeRooms[roomName]) {
-                    // Using a Set ensures we don't count the same player twice
                     challengeRooms[roomName] = { readyPlayers: new Set() };
                 }
-                
-                // Add the current player's socket ID to the ready set
                 challengeRooms[roomName].readyPlayers.add(socket.id);
-                console.log(`Player ${socket.id} in room ${roomName} has signaled they are ready.`);
-
-                // Check if both players are now ready
                 if (challengeRooms[roomName].readyPlayers.size === 2) {
-                    console.log(`Both players in room ${roomName} are ready. Notifying clients.`);
-                    // Notify everyone in the room to enable their start buttons
                     io.to(roomName).emit('all-players-ready');
                 }
             });
@@ -278,7 +279,6 @@ async function startServer() {
             socket.on('finish-game', ({ roomName, winnerEmail }) => io.to(roomName).emit('game-over-sync', { winnerEmail }));
         });
 
-        // The route that needs access to `io`
         app.post('/send-challenge', async (req, res) => {
             const { fromName, fromEmail, toEmail } = req.body;
             try {
@@ -304,7 +304,6 @@ async function startServer() {
             }
         });
 
-        // Finally, start listening.
         server.listen(PORT, () => {
             console.log(`🚀 Server (HTTP + WebSocket) running on port ${PORT}`);
         });

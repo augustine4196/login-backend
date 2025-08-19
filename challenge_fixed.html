@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Reps Challenge - Fixed</title>
+    <style>
+        :root {
+            --app-bg: #FFFFFF;
+            --text-primary: #000000;
+            --card-bg: #e9e9e9;
+            --accent-red: #ff3b30;
+            --accent-green: #00ff00;
+            --border-color: #dcdcdc;
+            --winner-overlay-bg: rgba(0, 0, 0, 0.8);
+        }
+
+        html, body {
+            height: 100%;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f0f2f5;
+        }
+        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        .challenge-container {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            max-width: 900px;
+            height: 100%;
+            max-height: 95vh;
+            margin: auto;
+            background-color: var(--app-bg);
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .app-header { text-align: center; padding: 15px; border-bottom: 1px solid var(--border-color); }
+        .app-header h1 { font-size: 24px; font-weight: bold; }
+
+        .game-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 15px;
+            gap: 20px;
+            background-color: var(--card-bg);
+        }
+        .game-controls label { font-weight: 500; }
+        .game-controls input { width: 70px; padding: 8px; border-radius: 8px; border: 1px solid var(--border-color); text-align: center; font-size: 16px; }
+        .game-controls button { padding: 10px 20px; font-size: 16px; font-weight: bold; border-radius: 8px; border: none; cursor: pointer; background-color: var(--accent-red); color: white; transition: background-color 0.3s; }
+        .game-controls button:disabled { background-color: #999; cursor: not-allowed; }
+        .game-controls button:not(:disabled) { background-color: #28a745; }
+
+        .players-area { display: flex; flex-grow: 1; width: 100%; min-height: 0; }
+        .player-container { flex: 1; display: flex; flex-direction: column; padding: 15px; position: relative; }
+        .player-container:first-child { border-right: 1px solid var(--border-color); }
+        .player-header { font-size: 20px; font-weight: 600; text-align: center; margin-bottom: 10px; }
+
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            background-color: #000;
+            border-radius: 15px;
+            overflow: hidden;
+            aspect-ratio: 9 / 16;
+        }
+        
+        .video, .canvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+        
+        .video { z-index: 1; }
+        .canvas { z-index: 2; }
+        
+        .feedback-overlay, .loading-overlay, .winner-overlay { z-index: 3; }
+
+        .feedback-overlay {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0,0,0,0.5);
+            color: white;
+            padding: 5px 15px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        .loading-overlay, .winner-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+            padding: 20px;
+            background-color: var(--winner-overlay-bg);
+            transform: scaleX(-1);
+        }
+        
+        .winner-overlay { display: none; flex-direction: column; gap: 15px; }
+        .winner-text { font-size: 3em; color: var(--accent-green); text-shadow: 0 0 10px black; }
+
+        .stats-area { display: grid; grid-template-columns: repeat(2, 1fr); padding-top: 15px; gap: 10px; }
+        .stat-card { text-align: center; background-color: #f0f2f5; border-radius: 10px; padding: 10px 5px; }
+        .stat-card .label { font-size: 14px; font-weight: 500; color: var(--text-primary); opacity: 0.7; }
+        .stat-card .value { font-size: 36px; font-weight: bold; line-height: 1.1; }
+
+        .debug-panel {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div class="debug-panel" id="debug">
+        Status: Loading...
+    </div>
+    
+    <div class="challenge-container">
+        <header class="app-header"><h1>AI Reps Challenge</h1></header>
+        <div class="game-controls">
+            <label for="winning-score">Winning Score:</label>
+            <input type="number" id="winning-score" value="10" min="1">
+            <button id="start-btn" disabled>Start Challenge</button>
+            <button id="reset-btn">Reset</button>
+        </div>
+        <main class="players-area">
+            <div id="self-container" class="player-container">
+                <h2 class="player-header">You</h2>
+                <div class="video-wrapper">
+                    <div class="loading-overlay"><p>Connecting...</p></div>
+                    <div class="winner-overlay"><span class="winner-text">🏆 WINNER! 🏆</span></div>
+                    <video id="video-self" class="video" playsinline muted></video>
+                    <canvas id="canvas-self" class="canvas"></canvas>
+                    <div class="feedback-overlay">Waiting for connection</div>
+                </div>
+                <div class="stats-area">
+                    <div class="stat-card"><span class="label">Count</span><p class="value reps-display">0</p></div>
+                    <div class="stat-card"><span class="label">Position</span><p class="value stage-display">--</p></div>
+                </div>
+            </div>
+            <div id="opponent-container" class="player-container">
+                <h2 class="player-header">Opponent</h2>
+                <div class="video-wrapper">
+                     <div class="loading-overlay"><p>Waiting for Opponent...</p></div>
+                     <div class="winner-overlay"><span class="winner-text">🏆 WINNER! 🏆</span></div>
+                    <video id="video-opponent" class="video" playsinline></video>
+                    <canvas id="canvas-opponent" class="canvas"></canvas>
+                    <div class="feedback-overlay">Waiting for connection</div>
+                </div>
+                 <div class="stats-area">
+                    <div class="stat-card"><span class="label">Count</span><p class="value reps-display">0</p></div>
+                     <div class="stat-card"><span class="label">Position</span><p class="value stage-display">--</p></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Fixed library loading -->
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    
+    <script type="module">
+        // =================================================================
+        // --- DEBUG AND UTILITY FUNCTIONS ---
+        // =================================================================
+        const debugPanel = document.getElementById('debug');
+        function log(message) {
+            console.log(message);
+            debugPanel.innerHTML = `${new Date().toLocaleTimeString()}: ${message}`;
+        }
+
+        // =================================================================
+        // --- 1. INITIAL SETUP & CONFIGURATION ---
+        // =================================================================
+        const backendUrl = "https://fitflow-backend-ge3y.onrender.com";
+        const socket = io(backendUrl);
+        const params = new URLSearchParams(window.location.search);
+        const roomName = params.get('room') || `test_room_${Date.now()}`;
+        const initialWinningScore = params.get('count');
+        const exerciseType = params.get('exercise') || 'Bicep Curl';
+        const userEmail = localStorage.getItem('userEmail') || `user_${Date.now()}`;
+        
+        let localStream;
+        let peerConnection;
+        const stunServers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+        log(`Initializing: Room=${roomName}, User=${userEmail}`);
+
+        // =================================================================
+        // --- 2. GAME STATE & UI ELEMENTS ---
+        // =================================================================
+        let gameRunning = false;
+        let winner = null;
+        let bothPlayersReady = false;
+        
+        const startBtn = document.getElementById('start-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        const winningScoreInput = document.getElementById('winning-score');
+        const headerText = document.querySelector('.app-header h1');
+        
+        if (initialWinningScore) winningScoreInput.value = initialWinningScore;
+        const formattedName = exerciseType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        headerText.innerText = `${formattedName} Challenge`;
+
+        // =================================================================
+        // --- 3. SIMPLE POSE DETECTION (No MediaPipe - Using Basic Math) ---
+        // =================================================================
+        class SimplePoseDetector {
+            constructor(video, canvas) {
+                this.video = video;
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+                this.counter = 0;
+                this.stage = null;
+                this.isDetecting = false;
+                this.lastPosition = null;
+                this.movementThreshold = 50; // Pixel movement threshold
+                this.frameCount = 0;
+            }
+
+            // Simple motion-based detection (fallback when MediaPipe fails)
+            detectMotion() {
+                if (!this.isDetecting || !this.video.srcObject) return;
+
+                this.frameCount++;
+                
+                // Draw current frame to canvas
+                this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
+                
+                // Get image data for motion detection
+                const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+                
+                // Simple motion detection every 30 frames (about 1 second at 30fps)
+                if (this.frameCount % 30 === 0) {
+                    const currentMotion = this.calculateMotion(imageData);
+                    
+                    if (this.lastPosition !== null) {
+                        const motionDelta = Math.abs(currentMotion - this.lastPosition);
+                        
+                        if (motionDelta > this.movementThreshold) {
+                            if (this.stage === null || this.stage === 'down') {
+                                this.stage = 'up';
+                            } else if (this.stage === 'up') {
+                                this.stage = 'down';
+                                this.counter++;
+                                this.onRepCounted();
+                            }
+                        }
+                    }
+                    
+                    this.lastPosition = currentMotion;
+                }
+
+                requestAnimationFrame(() => this.detectMotion());
+            }
+
+            calculateMotion(imageData) {
+                const data = imageData.data;
+                let totalBrightness = 0;
+                
+                // Sample every 4th pixel for performance
+                for (let i = 0; i < data.length; i += 16) {
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
+                    totalBrightness += (r + g + b) / 3;
+                }
+                
+                return totalBrightness;
+            }
+
+            onRepCounted() {
+                // Override this method in subclasses
+            }
+
+            start() {
+                this.isDetecting = true;
+                log('Starting simple motion detection');
+                this.detectMotion();
+            }
+
+            stop() {
+                this.isDetecting = false;
+            }
+
+            reset() {
+                this.counter = 0;
+                this.stage = null;
+                this.lastPosition = null;
+                this.frameCount = 0;
+            }
+        }
+
+        // =================================================================
+        // --- 4. PLAYER CLASS WITH SIMPLIFIED DETECTION ---
+        // =================================================================
+        class Player {
+            constructor(id, isLocal) {
+                this.id = id;
+                this.isLocal = isLocal;
+                this.container = document.getElementById(`${id}-container`);
+                this.video = document.getElementById(`video-${id}`);
+                this.canvas = document.getElementById(`canvas-${id}`);
+                this.repsDisplay = this.container.querySelector('.reps-display');
+                this.stageDisplay = this.container.querySelector('.stage-display');
+                this.feedbackOverlay = this.container.querySelector('.feedback-overlay');
+                this.loadingOverlay = this.container.querySelector('.loading-overlay');
+                this.winnerOverlay = this.container.querySelector('.winner-overlay');
+                
+                this.detector = new SimplePoseDetector(this.video, this.canvas);
+                this.detector.onRepCounted = () => this.onRepCounted();
+                
+                log(`Player ${id} initialized`);
+            }
+
+            onRepCounted() {
+                this.repsDisplay.innerText = this.detector.counter;
+                this.stageDisplay.innerText = this.detector.stage ? this.detector.stage.charAt(0).toUpperCase() + this.detector.stage.slice(1) : '--';
+                
+                if (this.isLocal) {
+                    this.feedbackOverlay.innerText = 'Good Rep!';
+                    socket.emit('rep-update', { roomName, count: this.detector.counter });
+                    checkWinner(this);
+                    log(`Rep counted: ${this.detector.counter}`);
+                }
+            }
+
+            async initialize(stream) {
+                log(`Initializing ${this.id} with stream`);
+                
+                this.video.srcObject = stream;
+                
+                return new Promise((resolve) => {
+                    this.video.addEventListener('loadedmetadata', () => {
+                        log(`Video metadata loaded for ${this.id}`);
+                        
+                        this.video.play().then(() => {
+                            this.canvas.width = this.video.videoWidth || 640;
+                            this.canvas.height = this.video.videoHeight || 480;
+                            
+                            this.loadingOverlay.style.display = 'none';
+                            this.feedbackOverlay.innerText = "Ready!";
+                            
+                            log(`${this.id} video playing: ${this.canvas.width}x${this.canvas.height}`);
+                            
+                            // Notify readiness
+                            if (this.isLocal) {
+                                socket.emit('player-ready', roomName);
+                                log('Emitted player-ready');
+                            }
+                            
+                            resolve();
+                        }).catch(e => {
+                            log(`Video play error for ${this.id}: ${e.message}`);
+                            resolve();
+                        });
+                    }, { once: true });
+                });
+            }
+
+            start() { 
+                log(`Starting detection for ${this.id}`);
+                this.detector.start();
+                this.feedbackOverlay.innerText = 'Go!';
+            }
+            
+            stop() { 
+                this.detector.stop();
+            }
+            
+            reset() {
+                this.detector.reset();
+                this.repsDisplay.innerText = '0';
+                this.stageDisplay.innerText = '--';
+                this.winnerOverlay.style.display = 'none';
+            }
+        }
+
+        const selfPlayer = new Player('self', true);
+        const opponentPlayer = new Player('opponent', false);
+
+        // =================================================================
+        // --- 5. WEBRTC FUNCTIONS ---
+        // =================================================================
+        async function startLocalMediaAndJoin() {
+            log('Requesting camera access...');
+            
+            try {
+                selfPlayer.feedbackOverlay.innerText = 'Allow camera...';
+                
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        facingMode: "user",
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    }, 
+                    audio: false // Disable audio for simplicity
+                });
+                
+                localStream = stream;
+                log('Camera access granted');
+                
+                await selfPlayer.initialize(stream);
+                socket.emit('register', userEmail);
+                socket.emit('join-challenge-room', roomName);
+                
+                log('Joined challenge room');
+                
+            } catch (err) {
+                log(`Camera error: ${err.message}`);
+                selfPlayer.feedbackOverlay.innerText = "Camera access denied.";
+                // Create a dummy stream for testing
+                createDummyStream();
+            }
+        }
+
+        function createDummyStream() {
+            // Create a canvas for dummy video
+            const dummyCanvas = document.createElement('canvas');
+            dummyCanvas.width = 640;
+            dummyCanvas.height = 480;
+            const ctx = dummyCanvas.getContext('2d');
+            
+            // Draw a simple pattern
+            ctx.fillStyle = '#333';
+            ctx.fillRect(0, 0, 640, 480);
+            ctx.fillStyle = '#fff';
+            ctx.font = '32px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('DEMO MODE', 320, 240);
+            
+            const stream = dummyCanvas.captureStream(30);
+            localStream = stream;
+            selfPlayer.initialize(stream);
+            socket.emit('register', userEmail);
+            socket.emit('join-challenge-room', roomName);
+        }
+
+        function createPeerConnection() {
+            log('Creating peer connection');
+            
+            peerConnection = new RTCPeerConnection(stunServers);
+            
+            if (localStream) {
+                localStream.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, localStream);
+                    log(`Added ${track.kind} track to peer connection`);
+                });
+            }
+            
+            peerConnection.ontrack = async (event) => {
+                log('Received remote stream');
+                const [remoteStream] = event.streams;
+                await opponentPlayer.initialize(remoteStream);
+                
+                // Both players are now connected
+                bothPlayersReady = true;
+                startBtn.disabled = false;
+                selfPlayer.feedbackOverlay.innerText = "Ready to start!";
+                opponentPlayer.feedbackOverlay.innerText = "Ready to start!";
+                log('Both players ready!');
+            };
+            
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    socket.emit('webrtc-ice-candidate', { roomName, candidate: event.candidate });
+                }
+            };
+            
+            peerConnection.onconnectionstatechange = () => {
+                log(`Peer connection state: ${peerConnection.connectionState}`);
+            };
+        }
+
+        // =================================================================
+        // --- 6. SOCKET.IO EVENT HANDLERS ---
+        // =================================================================
+        socket.on('connect', () => {
+            log('Connected to server');
+            startLocalMediaAndJoin();
+        });
+
+        socket.on('disconnect', () => {
+            log('Disconnected from server');
+        });
+
+        socket.on('peer-joined', async () => {
+            log('Peer joined - creating offer');
+            selfPlayer.feedbackOverlay.innerText = 'Opponent found!';
+            
+            createPeerConnection();
+            
+            try {
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                socket.emit('webrtc-offer', { roomName, sdp: peerConnection.localDescription });
+                log('Offer sent');
+            } catch (error) {
+                log(`Error creating offer: ${error.message}`);
+            }
+        });
+
+        socket.on('webrtc-offer', async (sdp) => {
+            log('Received offer');
+            
+            if (peerConnection) return; // Already have connection
+            
+            createPeerConnection();
+            
+            try {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                socket.emit('webrtc-answer', { roomName, sdp: peerConnection.localDescription });
+                log('Answer sent');
+            } catch (error) {
+                log(`Error handling offer: ${error.message}`);
+            }
+        });
+
+        socket.on('webrtc-answer', async (sdp) => {
+            log('Received answer');
+            
+            try {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
+            } catch (error) {
+                log(`Error handling answer: ${error.message}`);
+            }
+        });
+
+        socket.on('webrtc-ice-candidate', (candidate) => {
+            if (peerConnection) {
+                try {
+                    peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                } catch (error) {
+                    log(`Error adding ice candidate: ${error.message}`);
+                }
+            }
+        });
+
+        socket.on('all-players-ready', () => {
+            log('All players ready signal received');
+            bothPlayersReady = true;
+            startBtn.disabled = false;
+            selfPlayer.feedbackOverlay.innerText = "Ready to start!";
+            opponentPlayer.feedbackOverlay.innerText = "Ready to start!";
+        });
+
+        socket.on('game-start-sync', (newWinningScore) => {
+            log(`Game started with winning score: ${newWinningScore}`);
+            winningScoreInput.value = newWinningScore;
+            startGame();
+        });
+
+        socket.on('opponent-rep-update', (count) => {
+            log(`Opponent rep count: ${count}`);
+            opponentPlayer.detector.counter = count;
+            opponentPlayer.repsDisplay.innerText = count;
+            checkWinner(opponentPlayer);
+        });
+
+        socket.on('game-over-sync', ({ winnerEmail }) => {
+            log(`Game over - winner: ${winnerEmail}`);
+            
+            if (winner) return;
+            
+            const winnerPlayer = (winnerEmail === userEmail) ? selfPlayer : opponentPlayer;
+            winner = winnerPlayer;
+            gameRunning = false;
+            
+            [selfPlayer, opponentPlayer].forEach(p => p.stop());
+            
+            winnerPlayer.winnerOverlay.style.display = 'flex';
+            winnerPlayer.feedbackOverlay.innerText = 'WINNER!';
+            
+            startBtn.disabled = true;
+            winningScoreInput.disabled = true;
+        });
+
+        socket.on('peer-disconnected', () => {
+            log('Peer disconnected');
+            opponentPlayer.feedbackOverlay.innerText = "Opponent Disconnected";
+            opponentPlayer.video.srcObject = null;
+            opponentPlayer.loadingOverlay.style.display = 'flex';
+            
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+            
+            bothPlayersReady = false;
+            startBtn.disabled = true;
+        });
+
+        // =================================================================
+        // --- 7. GAME LOGIC ---
+        // =================================================================
+        function checkWinner(player) {
+            if (winner) return;
+            
+            const scoreToWin = parseInt(winningScoreInput.value, 10);
+            if (player.detector.counter >= scoreToWin) {
+                if (player.isLocal) {
+                    socket.emit('finish-game', { roomName, winnerEmail: userEmail });
+                }
+            }
+        }
+
+        function startGame() {
+            if (gameRunning) return;
+            
+            const scoreToWin = parseInt(winningScoreInput.value, 10);
+            if (isNaN(scoreToWin) || scoreToWin <= 0) {
+                alert("Set a valid winning score.");
+                return;
+            }
+            
+            log(`Starting game with winning score: ${scoreToWin}`);
+            
+            gameRunning = true;
+            winner = null;
+            
+            // Reset both players
+            [selfPlayer, opponentPlayer].forEach(p => {
+                p.reset();
+                p.start();
+            });
+            
+            startBtn.disabled = true;
+            winningScoreInput.disabled = true;
+        }
+
+        // =================================================================
+        // --- 8. EVENT LISTENERS ---
+        // =================================================================
+        startBtn.addEventListener('click', () => {
+            if (!bothPlayersReady) {
+                alert('Wait for both players to be ready!');
+                return;
+            }
+            
+            const scoreToWin = parseInt(winningScoreInput.value, 10);
+            socket.emit('start-game', { roomName, winningScore: scoreToWin });
+        });
+
+        resetBtn.addEventListener('click', () => {
+            log('Resetting game');
+            window.location.reload();
+        });
+
+        // =================================================================
+        // --- 9. ERROR HANDLING ---
+        // =================================================================
+        window.addEventListener('error', (event) => {
+            log(`Error: ${event.error?.message || event.message}`);
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+            log(`Unhandled promise rejection: ${event.reason}`);
+        });
+
+        log('Challenge page initialized');
+    </script>
+</body>
+</html>
