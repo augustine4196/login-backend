@@ -33,14 +33,14 @@ app.use(bodyParser.json());
 
 
 // =================================================================
-// --- 3. ALL API ROUTES (CHATBOT LOGIC IS NOW FIXED) ---
+// --- 3. ALL API ROUTES ---
 // =================================================================
 
 app.get("/", (req, res) => {
   res.send("✅ FitFlow backend is working!");
 });
 
-// --- User Account Routes ---
+// --- User Account Routes (UNCHANGED) ---
 app.post('/signup', async (req, res) => {
   const { fullName, email, password, gender, age, height, weight, place, equipments, goal, profileImage } = req.body;
   try {
@@ -81,44 +81,47 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// --- Chatbot Route (MODIFIED) ---
+// --- Chatbot Route (MODIFIED TO USE OPENROUTER API) ---
 app.post('/ask', async (req, res) => {
   const { question } = req.body;
+
+  // 1. Validation: Check if a question was provided
   if (!question) {
     return res.status(400).json({ error: 'No question provided.' });
   }
-  try {
-    // Convert the user's question to lowercase for easier keyword matching
-    const lowerCaseQuestion = question.toLowerCase();
-    let botResponse = "I'm sorry, I'm not sure how to answer that. Try asking about workouts, nutrition, or building muscle!";
 
-    // --- Simple Keyword-Based AI Logic ---
-    if (lowerCaseQuestion.includes('hello') || lowerCaseQuestion.includes('hi')) {
-        botResponse = "Hello! How can I help you with your fitness goals today?";
-    } else if (lowerCaseQuestion.includes('how are you')) {
-        botResponse = "I'm just a program, but I'm ready to assist you! What's on your mind?";
-    } else if (lowerCaseQuestion.includes('workout') || lowerCaseQuestion.includes('exercise')) {
-        botResponse = "For a great full-body workout, try combining squats, push-ups, and planks. What muscle group are you targeting?";
-    } else if (lowerCaseQuestion.includes('build muscle')) {
-        botResponse = "To build muscle, focus on progressive overload (lifting heavier over time) and ensure you're eating enough protein. Aim for 1.6-2.2 grams of protein per kg of body weight.";
-    } else if (lowerCaseQuestion.includes('lose weight') || lowerCaseQuestion.includes('fat loss')) {
-        botResponse = "Weight loss is primarily about maintaining a consistent calorie deficit. Combining a healthy diet with regular cardiovascular exercise like running or cycling is very effective.";
-    } else if (lowerCaseQuestion.includes('nutrition') || lowerCaseQuestion.includes('what should i eat')) {
-        botResponse = "A balanced diet is key. Make sure to include lean proteins, complex carbohydrates, healthy fats, and plenty of vegetables in your meals.";
-    } else if (lowerCaseQuestion.includes('protein')) {
-        botResponse = "Excellent sources of protein include chicken breast, fish, eggs, tofu, lentils, and Greek yogurt. They are essential for muscle repair and growth.";
-    } else if (lowerCaseQuestion.includes('thank you') || lowerCaseQuestion.includes('thanks')) {
-        botResponse = "You're welcome! Let me know if you have any other questions.";
-    }
-    
-    // Send the determined response
+  try {
+    // 2. Make an API call to OpenRouter
+    const response = await axios.post(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        model: "google/gemma-7b-it:free", // Using a high-quality free model
+        messages: [
+          { role: "system", content: "You are a friendly and helpful fitness assistant. Provide concise and accurate information about workouts, nutrition, and general health." },
+          { role: "user", content: question }
+        ]
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`, // Securely uses your API key
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    // 3. Extract the AI's answer from the API response
+    const botResponse = response.data.choices[0].message.content;
+
+    // 4. Send the AI's answer back to your front-end
     res.status(200).json({ answer: botResponse });
 
   } catch (error) {
-    console.error("❌ Error in /ask route:", error);
-    res.status(500).json({ error: "Something went wrong while processing your question." });
+    // 5. Handle potential errors from the API call
+    console.error("❌ Error calling OpenRouter API:", error.response ? error.response.data : error.message);
+    res.status(500).json({ error: "Sorry, I couldn't get a response from the AI assistant right now." });
   }
 });
+
 
 // --- User Data Routes (UNCHANGED) ---
 app.get('/user/:email', async (req, res) => {
