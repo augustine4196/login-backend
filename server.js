@@ -81,7 +81,7 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// --- Chatbot Route (UPDATED WITH CORRECT MODEL) ---
+// --- Chatbot Route (UPDATED WITH ROBUST ERROR HANDLING) ---
 app.post('/ask', async (req, res) => {
   const { question } = req.body;
   if (!question) {
@@ -92,8 +92,7 @@ app.post('/ask', async (req, res) => {
     const response = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
-        // *** THIS LINE IS THE ONLY CHANGE ***
-        model: "mistralai/mistral-7b-instruct:free",
+        model: "google/gemma-7b-it:free",
         messages: [
           { role: "system", content: "You are a friendly and helpful fitness assistant. Provide concise and accurate information about workouts, nutrition, and general health." },
           { role: "user", content: question }
