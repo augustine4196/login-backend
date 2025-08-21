@@ -81,14 +81,13 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// --- Chatbot Route (UPDATED WITH ROBUST ERROR HANDLING) ---
+// --- Chatbot Route (UPDATED WITH A VALID, WORKING MODEL) ---
 app.post('/ask', async (req, res) => {
   const { question } = req.body;
   if (!question) {
     return res.status(400).json({ error: 'No question provided.' });
   }
 
-  // *** CRITICAL FIX: Verify the API key exists before making the call ***
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     console.error("❌ CRITICAL: OPENROUTER_API_KEY is not set in environment variables.");
@@ -99,7 +98,8 @@ app.post('/ask', async (req, res) => {
     const response = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
-        model: "google/gemma-7b-it:free",
+        // *** FIX: Replaced the old model with a currently available free model ***
+        model: "meta-llama/llama-3-8b-instruct:free",
         messages: [
           { role: "system", content: "You are a friendly and helpful fitness assistant. Provide concise and accurate information about workouts, nutrition, and general health." },
           { role: "user", content: question }
@@ -107,8 +107,10 @@ app.post('/ask', async (req, res) => {
       },
       {
         headers: {
-          'Authorization': `Bearer ${apiKey}`, // Use the verified key
-          'Content-Type': 'application/json'
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+           // Good practice: Let the API know where the request is coming from
+          'HTTP-Referer': 'https://personalize-fitness-trainer.netlify.app'
         }
       }
     );
