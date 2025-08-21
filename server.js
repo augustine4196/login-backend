@@ -88,6 +88,13 @@ app.post('/ask', async (req, res) => {
     return res.status(400).json({ error: 'No question provided.' });
   }
 
+  // *** CRITICAL FIX: Verify the API key exists before making the call ***
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    console.error("❌ CRITICAL: OPENROUTER_API_KEY is not set in environment variables.");
+    return res.status(500).json({ error: "Server configuration error: AI service is not configured." });
+  }
+
   try {
     const response = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
@@ -100,7 +107,7 @@ app.post('/ask', async (req, res) => {
       },
       {
         headers: {
-          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          'Authorization': `Bearer ${apiKey}`, // Use the verified key
           'Content-Type': 'application/json'
         }
       }
