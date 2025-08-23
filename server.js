@@ -22,11 +22,10 @@ const Challenge = require('./models/Challenge');
 // =================================================================
 const app = express();
 
-// Correct, explicit CORS configuration to allow all origins
 app.use(cors({
-  origin: "*", // This allows all origins
-  methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS", // Explicitly allow methods
-  allowedHeaders: "Content-Type, Authorization" // Explicitly allow headers
+  origin: "*",
+  methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS",
+  allowedHeaders: "Content-Type, Authorization"
 }));
 
 app.use(bodyParser.json());
@@ -108,12 +107,12 @@ app.post('/ask', async (req, res) => {
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://personalize-fitness-trainer.netlify.app' // Replace with your actual frontend URL if needed
+          'HTTP-Referer': 'https://personalize-fitness-trainer.netlify.app'
         }
       }
     );
 
-    if (response.data && response.data.choices && response.data.choices.length > 0 && response.data.choices[0].message) {
+    if (response.data?.choices?.[0]?.message) {
       const botResponse = response.data.choices[0].message.content;
       res.status(200).json({ answer: botResponse });
     } else {
@@ -143,10 +142,9 @@ app.get('/user/:email', async (req, res) => {
 });
 
 // =================================================================
-// --- ✅ NEW: WORKOUT PLAN GENERATION LOGIC ---
+// --- ✅ MODIFIED: WORKOUT PLAN GENERATION LOGIC ---
 // =================================================================
 
-// This acts as a mini-database of all possible exercises
 const masterExercises = [
     // Cardio
     { id: 1, title: "15 min Running", type: "Cardio", requirement: "Treadmill", image: "trend_mill.png", tutorial: "tutorial.html" },
@@ -157,7 +155,7 @@ const masterExercises = [
 
     // Strength
     { id: 6, title: "3x10 Bicep Curls", type: "Strength", requirement: "Dumbbells", image: "dumbell.jpeg", tutorial: "bicep_curl_tutorial.html" },
-    { id: 7, title: "3x12 Dumbbell Press", type: "Strength", requirement: "Dumbbells", image: "reps.png", tutorial: "tutorial.html" },
+    { id: 7, title: "3x12 Dumbbell Press", type: "Strength", requirement: "Dumbbells", image: "reps.png", tutorial: "tutorial.html" }, // This is the common exercise
     { id: 8, title: "3x8 Pull-ups", type: "Strength", requirement: "Pull-up Bar", image: "Pull-up Bar.png", tutorial: "tutorial.html" },
     { id: 9, title: "3x15 Push-ups", type: "Strength", requirement: "Bodyweight", image: "pushups.png", tutorial: "tutorial.html" },
     { id: 10, title: "3x20 Squats", type: "Strength", requirement: "Bodyweight", image: "squats.png", tutorial: "tutorial.html" },
@@ -169,83 +167,85 @@ const masterExercises = [
     { id: 14, title: "5 min Quad Stretch", type: "Cooldown", requirement: "Bodyweight", image: "stretch.png", tutorial: "tutorial.html" },
 ];
 
-/**
- * Analyzes user data and generates a personalized workout plan.
- * @param {object} user - The user object from the database.
- * @returns {Array<object>} An array of exercise objects.
- */
 function generateWorkoutPlan(user) {
     const { goal, equipments = [] } = user;
     let plan = [];
-
-    // 1. Filter exercises by available equipment. Bodyweight is always available.
-    // This ensures robustness if 'equipments' is a string or undefined.
     const userEquipments = Array.isArray(equipments) ? equipments : (equipments ? [equipments] : []);
+    
+    // Filter all exercises the user can possibly do
     const availableExercises = masterExercises.filter(ex => 
         ex.requirement === 'Bodyweight' || userEquipments.includes(ex.requirement)
     );
 
-    // Helper to get random, non-repeating exercises of a certain type
+    // MODIFICATION: Define the common exercise
+    const commonRepsExerciseId = 7; // ID for "3x12 Dumbbell Press"
+    const commonExercise = masterExercises.find(ex => ex.id === commonRepsExerciseId);
+    let selectableExercises = [...availableExercises];
+
+    // MODIFICATION: If the user has dumbbells, add the common exercise first
+    if (userEquipments.includes('Dumbbells') && commonExercise) {
+        plan.push(commonExercise);
+        // Exclude it from the pool of exercises to be randomly selected
+        selectableExercises = availableExercises.filter(ex => ex.id !== commonRepsExerciseId);
+    }
+
+    // Helper to get random, non-repeating exercises from the remaining pool
     const getRandom = (arr, type, count) => {
         const filtered = arr.filter(ex => ex.type === type);
-        // Shuffle and slice to get random exercises
         return [...filtered].sort(() => 0.5 - Math.random()).slice(0, count);
     };
     
-    // 2. Always add a warm-up
-    plan.push(...getRandom(availableExercises, "Cardio", 1));
+    // Add a warm-up from the selectable exercises
+    plan.push(...getRandom(selectableExercises, "Cardio", 1));
 
-    // 3. Generate the main workout based on the user's goal
+    // Generate the main workout based on the user's goal
     switch (goal) {
-        case 'loose weight': // Focus on high-calorie burn
-            plan.push(...getRandom(availableExercises, "Cardio", 2));
-            plan.push(...getRandom(availableExercises, "Strength", 2));
+        case 'loose weight':
+            plan.push(...getRandom(selectableExercises, "Cardio", 2));
+            plan.push(...getRandom(selectableExercises, "Strength", 2));
             break;
-        case 'gain weight': // Focus on muscle building
-            plan.push(...getRandom(availableExercises, "Strength", 4));
+        case 'gain weight':
+            plan.push(...getRandom(selectableExercises, "Strength", 4));
             break;
-        case 'get fit': // A balanced mix
-            plan.push(...getRandom(availableExercises, "Cardio", 2));
-            plan.push(...getRandom(availableExercises, "Strength", 2));
+        case 'get fit':
+            plan.push(...getRandom(selectableExercises, "Cardio", 2));
+            plan.push(...getRandom(selectableExercises, "Strength", 2));
             break;
-        case 'body weight': // Focus only on bodyweight exercises
-            const bodyweightOnly = availableExercises.filter(ex => ex.requirement === 'Bodyweight');
+        case 'body weight':
+            const bodyweightOnly = selectableExercises.filter(ex => ex.requirement === 'Bodyweight');
             plan = [ // Reset plan to ensure only bodyweight is included
                 ...getRandom(bodyweightOnly, "Cardio", 2),
                 ...getRandom(bodyweightOnly, "Strength", 3)
             ];
             break;
-        default: // Default to general fitness if goal is unclear
-            plan.push(...getRandom(availableExercises, "Cardio", 2));
-            plan.push(...getRandom(availableExercises, "Strength", 2));
+        default:
+            plan.push(...getRandom(selectableExercises, "Cardio", 2));
+            plan.push(...getRandom(selectableExercises, "Strength", 2));
     }
     
-    // 4. Always add a cooldown
-    plan.push(...getRandom(availableExercises, "Cooldown", 1));
+    // Add a cooldown
+    plan.push(...getRandom(selectableExercises, "Cooldown", 1));
 
-    // 5. Remove duplicates and limit the total number of exercises to prevent overwhelming the user
+    // Remove duplicates and ensure the final plan has a max of 5 exercises
     const uniquePlan = [...new Map(plan.map(item => [item['id'], item])).values()];
-    return uniquePlan.slice(0, 5); // Return a max of 5 exercises for the daily plan
+    return uniquePlan.slice(0, 5);
 }
 
-// THE NEW API ENDPOINT
 app.get('/api/workout-plan/:email', async (req, res) => {
     try {
         const user = await User.findOne({ email: req.params.email });
         if (!user) {
             return res.status(404).json({ error: 'User not found.' });
         }
-
         const workoutPlan = generateWorkoutPlan(user);
         res.status(200).json(workoutPlan);
-
     } catch (err) {
         console.error("❌ Error generating workout plan:", err);
         res.status(500).json({ error: 'Failed to generate workout plan.' });
     }
 });
 // =================================================================
-// --- END OF NEW CODE ---
+// --- END OF MODIFIED CODE ---
 // =================================================================
 
 app.get('/admin/users', async (req, res) => {
@@ -322,6 +322,7 @@ async function startServer() {
         const challengeRooms = {};
 
         io.on('connection', (socket) => {
+            // ... (Your existing socket.io code is unchanged)
             console.log(`✅ WebSocket User connected: ${socket.id}`);
             
             socket.on('register', (userEmail) => {
@@ -348,7 +349,6 @@ async function startServer() {
                 }
             });
             
-            // Challenge Flow
             socket.on('accept-challenge', async ({ challengeId, challengerEmail, challengeRoomId }) => {
                 await Challenge.findByIdAndUpdate(challengeId, { status: 'accepted' });
                 const challengerSocketId = userSockets[challengerEmail];
@@ -358,7 +358,6 @@ async function startServer() {
                 socket.emit('challenge-accepted-redirect', { challengeRoomId });
             });
             
-            // Challenge Setup Sync
             socket.on('setup-change', ({ roomName, exercise, reps }) => {
                 socket.to(roomName).emit('setup-update', { exercise, reps });
             });
@@ -367,7 +366,6 @@ async function startServer() {
                 io.to(roomName).emit('start-the-challenge', { exercise, reps });
             });
 
-            // WebRTC Signaling
             socket.on('join-challenge-room', (roomName) => {
                 socket.roomName = roomName;
                 socket.join(roomName);
@@ -387,7 +385,6 @@ async function startServer() {
                 }
             });
 
-            // AI Game Sync
             socket.on('start-game', ({ roomName, winningScore }) => io.to(roomName).emit('game-start-sync', winningScore));
             socket.on('rep-update', ({ roomName, count }) => socket.to(roomName).emit('opponent-rep-update', count));
             socket.on('finish-game', ({ roomName, winnerEmail }) => io.to(roomName).emit('game-over-sync', { winnerEmail }));
