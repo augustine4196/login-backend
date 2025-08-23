@@ -40,26 +40,66 @@ app.get("/", (req, res) => {
   res.send("✅ FitFlow backend is working!");
 });
 
-// --- User Account Routes (UNCHANGED) ---
+// --- User Account Routes (MODIFIED) ---
+/**
+ * Handles both the initial user creation and the final profile update.
+ * - If the email does NOT exist, it creates a new user (expects fullName, email, password).
+ * - If the email DOES exist, it updates that user's profile with any additional data
+ *   (like gender, age, goal, etc.), preventing the "already exists" error on the final step.
+ */
 app.post('/signup', async (req, res) => {
   const { fullName, email, password, gender, age, height, weight, place, equipments, goal, profileImage } = req.body;
+
   try {
+    // Email is the primary identifier and is always required.
+    if (!email) {
+      return res.status(400).json({ error: "Email is required." });
+    }
     const sanitizedEmail = email.toLowerCase().trim();
-    if (!fullName || !sanitizedEmail || !password) {
-      return res.status(400).json({ error: "Name, email, and password are required." });
-    }
+
+    // Check if a user with this email already exists.
     const existingUser = await User.findOne({ email: sanitizedEmail });
+
     if (existingUser) {
-      return res.status(400).json({ error: "An account with this email already exists." });
+      // --- UPDATE LOGIC ---
+      // The user exists, which means this is the final step of the signup process.
+      // We will now UPDATE their profile with the new details.
+      const profileUpdates = {};
+      if (gender) profileUpdates.gender = gender;
+      if (age) profileUpdates.age = age;
+      if (height) profileUpdates.height = height;
+      if (weight) profileUpdates.weight = weight;
+      if (place) profileUpdates.place = place;
+      if (goal) profileUpdates.goal = goal;
+      if (equipments) profileUpdates.equipments = equipments;
+      if (profileImage) profileUpdates.profileImage = profileImage;
+
+      // Find the user by email and apply the updates.
+      await User.updateOne({ email: sanitizedEmail }, { $set: profileUpdates });
+
+      // Respond with a success message for the update.
+      return res.status(200).json({ message: "Profile updated successfully!", email: sanitizedEmail });
+
+    } else {
+      // --- CREATE LOGIC (Original Functionality) ---
+      // The user does not exist, so this is the first step of the signup.
+      // We need fullName and password to create a new user.
+      if (!fullName || !password) {
+        return res.status(400).json({ error: "Full name and password are required for new account." });
+      }
+
+      const newUser = new User({ fullName, email: sanitizedEmail, password, gender, age, height, weight, place, equipments, goal, profileImage });
+      await newUser.save();
+      
+      // Respond with a success message for the creation.
+      return res.status(201).json({ message: "Account created successfully!", email: sanitizedEmail });
     }
-    const newUser = new User({ fullName, email: sanitizedEmail, password, gender, age, height, weight, place, equipments, goal, profileImage });
-    await newUser.save();
-    res.status(201).json({ message: "Account created successfully!" });
   } catch (err) {
-    console.error("❌ Signup error:", err);
-    res.status(500).json({ error: "Signup failed. Please try again." });
+    console.error("❌ Signup/Update error:", err);
+    res.status(500).json({ error: "An internal server error occurred. Please try again." });
   }
 });
+
 
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
@@ -81,7 +121,7 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// --- Chatbot Route (UPDATED WITH A CURRENTLY VALID MODEL) ---
+// --- Chatbot Route (UNCHANGED) ---
 app.post('/ask', async (req, res) => {
   const { question } = req.body;
   if (!question) {
@@ -98,7 +138,6 @@ app.post('/ask', async (req, res) => {
     const response = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
-        // *** FINAL FIX: Updated to a currently available and reliable free model ***
         model: "google/gemma-3-27b-it:free",
         messages: [
           { role: "system", content: "You are a friendly and helpful fitness assistant. Provide concise and accurate information about workouts, nutrition, and general health." },
