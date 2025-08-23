@@ -40,7 +40,7 @@ app.get("/", (req, res) => {
   res.send("✅ FitFlow backend is working!");
 });
 
-// --- User Account Routes (UNCHANGED) ---
+// --- User Account Routes ---
 app.post('/signup', async (req, res) => {
   const { fullName, email, password, gender, age, height, weight, place, equipments, goal, profileImage } = req.body;
   try {
@@ -81,7 +81,7 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// --- Chatbot Route (UPDATED WITH A CURRENTLY VALID MODEL) ---
+// --- Chatbot Route ---
 app.post('/ask', async (req, res) => {
   const { question } = req.body;
   if (!question) {
@@ -98,7 +98,6 @@ app.post('/ask', async (req, res) => {
     const response = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
-        // *** FINAL FIX: Updated to a currently available and reliable free model ***
         model: "google/gemma-3-27b-it:free",
         messages: [
           { role: "system", content: "You are a friendly and helpful fitness assistant. Provide concise and accurate information about workouts, nutrition, and general health." },
@@ -109,7 +108,7 @@ app.post('/ask', async (req, res) => {
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://personalize-fitness-trainer.netlify.app'
+          'HTTP-Referer': 'https://personalize-fitness-trainer.netlify.app' // Replace with your actual frontend URL if needed
         }
       }
     );
@@ -129,7 +128,7 @@ app.post('/ask', async (req, res) => {
 });
 
 
-// --- User Data Routes (UNCHANGED) ---
+// --- User Data Routes ---
 app.get('/user/:email', async (req, res) => {
     try {
         const user = await User.findOne({ email: req.params.email }).select('-password');
@@ -143,6 +142,112 @@ app.get('/user/:email', async (req, res) => {
     }
 });
 
+// =================================================================
+// --- ✅ NEW: WORKOUT PLAN GENERATION LOGIC ---
+// =================================================================
+
+// This acts as a mini-database of all possible exercises
+const masterExercises = [
+    // Cardio
+    { id: 1, title: "15 min Running", type: "Cardio", requirement: "Treadmill", image: "trend_mill.png", tutorial: "tutorial.html" },
+    { id: 2, title: "15 min Elliptical", type: "Cardio", requirement: "Elliptical", image: "Elliptical.jpeg", tutorial: "tutorial.html" },
+    { id: 3, title: "20 min Cycling", type: "Cardio", requirement: "Stationary Bike", image: "cycle.jpeg", tutorial: "tutorial.html" },
+    { id: 4, title: "10 min Jumping Jacks", type: "Cardio", requirement: "Bodyweight", image: "jumping_jacks.png", tutorial: "tutorial.html" },
+    { id: 5, title: "10 min High Knees", type: "Cardio", requirement: "Bodyweight", image: "high_knees.png", tutorial: "tutorial.html" },
+
+    // Strength
+    { id: 6, title: "3x10 Bicep Curls", type: "Strength", requirement: "Dumbbells", image: "dumbell.jpeg", tutorial: "bicep_curl_tutorial.html" },
+    { id: 7, title: "3x12 Dumbbell Press", type: "Strength", requirement: "Dumbbells", image: "reps.png", tutorial: "tutorial.html" },
+    { id: 8, title: "3x8 Pull-ups", type: "Strength", requirement: "Pull-up Bar", image: "Pull-up Bar.png", tutorial: "tutorial.html" },
+    { id: 9, title: "3x15 Push-ups", type: "Strength", requirement: "Bodyweight", image: "pushups.png", tutorial: "tutorial.html" },
+    { id: 10, title: "3x20 Squats", type: "Strength", requirement: "Bodyweight", image: "squats.png", tutorial: "tutorial.html" },
+    { id: 11, title: "3x15 Lunges", type: "Strength", requirement: "Bodyweight", image: "lunges.png", tutorial: "tutorial.html" },
+    { id: 12, title: "3x1 min Plank", type: "Strength", requirement: "Bodyweight", image: "plank.png", tutorial: "tutorial.html" },
+    
+    // Flexibility / Cooldown
+    { id: 13, title: "5 min Hamstring Stretch", type: "Cooldown", requirement: "Bodyweight", image: "stretch.png", tutorial: "tutorial.html" },
+    { id: 14, title: "5 min Quad Stretch", type: "Cooldown", requirement: "Bodyweight", image: "stretch.png", tutorial: "tutorial.html" },
+];
+
+/**
+ * Analyzes user data and generates a personalized workout plan.
+ * @param {object} user - The user object from the database.
+ * @returns {Array<object>} An array of exercise objects.
+ */
+function generateWorkoutPlan(user) {
+    const { goal, equipments = [] } = user;
+    let plan = [];
+
+    // 1. Filter exercises by available equipment. Bodyweight is always available.
+    // This ensures robustness if 'equipments' is a string or undefined.
+    const userEquipments = Array.isArray(equipments) ? equipments : (equipments ? [equipments] : []);
+    const availableExercises = masterExercises.filter(ex => 
+        ex.requirement === 'Bodyweight' || userEquipments.includes(ex.requirement)
+    );
+
+    // Helper to get random, non-repeating exercises of a certain type
+    const getRandom = (arr, type, count) => {
+        const filtered = arr.filter(ex => ex.type === type);
+        // Shuffle and slice to get random exercises
+        return [...filtered].sort(() => 0.5 - Math.random()).slice(0, count);
+    };
+    
+    // 2. Always add a warm-up
+    plan.push(...getRandom(availableExercises, "Cardio", 1));
+
+    // 3. Generate the main workout based on the user's goal
+    switch (goal) {
+        case 'loose weight': // Focus on high-calorie burn
+            plan.push(...getRandom(availableExercises, "Cardio", 2));
+            plan.push(...getRandom(availableExercises, "Strength", 2));
+            break;
+        case 'gain weight': // Focus on muscle building
+            plan.push(...getRandom(availableExercises, "Strength", 4));
+            break;
+        case 'get fit': // A balanced mix
+            plan.push(...getRandom(availableExercises, "Cardio", 2));
+            plan.push(...getRandom(availableExercises, "Strength", 2));
+            break;
+        case 'body weight': // Focus only on bodyweight exercises
+            const bodyweightOnly = availableExercises.filter(ex => ex.requirement === 'Bodyweight');
+            plan = [ // Reset plan to ensure only bodyweight is included
+                ...getRandom(bodyweightOnly, "Cardio", 2),
+                ...getRandom(bodyweightOnly, "Strength", 3)
+            ];
+            break;
+        default: // Default to general fitness if goal is unclear
+            plan.push(...getRandom(availableExercises, "Cardio", 2));
+            plan.push(...getRandom(availableExercises, "Strength", 2));
+    }
+    
+    // 4. Always add a cooldown
+    plan.push(...getRandom(availableExercises, "Cooldown", 1));
+
+    // 5. Remove duplicates and limit the total number of exercises to prevent overwhelming the user
+    const uniquePlan = [...new Map(plan.map(item => [item['id'], item])).values()];
+    return uniquePlan.slice(0, 5); // Return a max of 5 exercises for the daily plan
+}
+
+// THE NEW API ENDPOINT
+app.get('/api/workout-plan/:email', async (req, res) => {
+    try {
+        const user = await User.findOne({ email: req.params.email });
+        if (!user) {
+            return res.status(404).json({ error: 'User not found.' });
+        }
+
+        const workoutPlan = generateWorkoutPlan(user);
+        res.status(200).json(workoutPlan);
+
+    } catch (err) {
+        console.error("❌ Error generating workout plan:", err);
+        res.status(500).json({ error: 'Failed to generate workout plan.' });
+    }
+});
+// =================================================================
+// --- END OF NEW CODE ---
+// =================================================================
+
 app.get('/admin/users', async (req, res) => {
     try {
         const users = await User.find().select('-password');
@@ -152,7 +257,7 @@ app.get('/admin/users', async (req, res) => {
     }
 });
 
-// --- Notification Routes (UNCHANGED) ---
+// --- Notification Routes ---
 app.post('/subscribe', async (req, res) => {
     res.status(200).json({ message: 'Subscription endpoint is active.' });
 });
@@ -184,7 +289,7 @@ app.get('/notifications/unread-count/:email', async (req, res) => {
     }
 });
 
-// --- Challenge Routes (UNCHANGED) ---
+// --- Challenge Routes ---
 app.get('/challenges/received/:email', async (req, res) => {
     try {
         const challenges = await Challenge.find({ opponentEmail: req.params.email, status: 'pending' }).sort({ timestamp: -1 });
@@ -196,7 +301,7 @@ app.get('/challenges/received/:email', async (req, res) => {
 
 
 // =================================================================
-// --- 4. SERVER STARTUP AND REAL-TIME INTEGRATION (UNCHANGED) ---
+// --- 4. SERVER STARTUP AND REAL-TIME INTEGRATION ---
 // =================================================================
 const PORT = process.env.PORT || 10000;
 
