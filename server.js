@@ -101,7 +101,7 @@ app.post('/signup', async (req, res) => {
       // Respond with a success message for the creation.
       return res.status(201).json({ message: "Account created successfully!", email: sanitizedEmail });
     }
-  } catch (err) => {
+  } catch (err) { // <--- THIS IS THE FIX
     console.error("❌ Signup/Update error:", err);
     res.status(500).json({ error: "An internal server error occurred. Please try again." });
   }
