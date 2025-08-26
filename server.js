@@ -40,12 +40,13 @@ app.get("/", (req, res) => {
   res.send("✅ FitFlow backend is working!");
 });
 
-// --- User Account Routes (MODIFIED) ---
+// --- User Account Routes (MODIFIED FOR EMAIL CHECK) ---
 /**
- * Handles both the initial user creation and the final profile update.
- * - If the email does NOT exist, it creates a new user (expects fullName, email, password).
- * - If the email DOES exist, it updates that user's profile with any additional data
- *   (like gender, age, goal, etc.), preventing the "already exists" error on the final step.
+ * Handles both initial user creation and subsequent profile updates.
+ * - If the email does NOT exist, it creates a new user.
+ * - If the email DOES exist, it checks the request.
+ *   - If the request looks like a new registration (contains fullName and password), it returns a 409 Conflict error.
+ *   - If the request looks like a profile update (contains other data like gender, age, etc.), it updates the user.
  */
 app.post('/signup', async (req, res) => {
   const { fullName, email, password, gender, age, height, weight, place, equipments, goal, profileImage } = req.body;
@@ -61,29 +62,35 @@ app.post('/signup', async (req, res) => {
     const existingUser = await User.findOne({ email: sanitizedEmail });
 
     if (existingUser) {
-      // --- UPDATE LOGIC ---
-      // The user exists, which means this is the final step of the signup process.
-      // We will now UPDATE their profile with the new details.
-      const profileUpdates = {};
-      if (gender) profileUpdates.gender = gender;
-      if (age) profileUpdates.age = age;
-      if (height) profileUpdates.height = height;
-      if (weight) profileUpdates.weight = weight;
-      if (place) profileUpdates.place = place;
-      if (goal) profileUpdates.goal = goal;
-      if (equipments) profileUpdates.equipments = equipments;
-      if (profileImage) profileUpdates.profileImage = profileImage;
+      // --- USER EXISTS LOGIC ---
+      // Distinguish between a new registration attempt and a profile update.
+      // A new registration will always have `fullName` and `password`.
+      if (fullName && password) {
+        // This is an attempt to create a new account with an email that is already taken.
+        return res.status(409).json({ error: "An account with this email address already exists. Please log in." });
+      } else {
+        // --- UPDATE LOGIC ---
+        // This is the final step of the signup process (updating the profile).
+        const profileUpdates = {};
+        if (gender) profileUpdates.gender = gender;
+        if (age) profileUpdates.age = age;
+        if (height) profileUpdates.height = height;
+        if (weight) profileUpdates.weight = weight;
+        if (place) profileUpdates.place = place;
+        if (goal) profileUpdates.goal = goal;
+        if (equipments) profileUpdates.equipments = equipments;
+        if (profileImage) profileUpdates.profileImage = profileImage;
 
-      // Find the user by email and apply the updates.
-      await User.updateOne({ email: sanitizedEmail }, { $set: profileUpdates });
+        // Find the user by email and apply the updates.
+        await User.updateOne({ email: sanitizedEmail }, { $set: profileUpdates });
 
-      // Respond with a success message for the update.
-      return res.status(200).json({ message: "Profile updated successfully!", email: sanitizedEmail });
+        // Respond with a success message for the update.
+        return res.status(200).json({ message: "Profile updated successfully!", email: sanitizedEmail });
+      }
 
     } else {
-      // --- CREATE LOGIC (Original Functionality) ---
+      // --- CREATE LOGIC ---
       // The user does not exist, so this is the first step of the signup.
-      // We need fullName and password to create a new user.
       if (!fullName || !password) {
         return res.status(400).json({ error: "Full name and password are required for new account." });
       }
@@ -94,7 +101,7 @@ app.post('/signup', async (req, res) => {
       // Respond with a success message for the creation.
       return res.status(201).json({ message: "Account created successfully!", email: sanitizedEmail });
     }
-  } catch (err) {
+  } catch (err) => {
     console.error("❌ Signup/Update error:", err);
     res.status(500).json({ error: "An internal server error occurred. Please try again." });
   }
