@@ -16,6 +16,10 @@ const { Server } = require("socket.io");
 const User = require('./models/User');
 const Notification = require('./models/Notification');
 const Challenge = require('./models/Challenge');
+const WorkoutPlan = require('./models/WorkoutPlan'); // NEW
+
+// Service imports
+const { generateWorkoutPlan } = require('./services/workoutGenerator'); // NEW
 
 // =================================================================
 // --- 2. INITIALIZATION & MIDDLEWARE ---
@@ -60,15 +64,10 @@ app.post('/check-email', async (req, res) => {
   }
 });
 
-// --- User Account Routes (MODIFIED FOR EMAIL CHECK) ---
+// --- User Account Routes (MODIFIED FOR WORKOUT PLAN GENERATION) ---
 /**
  * Handles both initial user creation and subsequent profile updates.
- * - If the email does NOT exist, it creates a new user.
- * - If the email DOES exist:
- *   - If client is attempting a new registration (different fullName/password) -> 409
- *   - Otherwise treat it as a profile update and apply fields that are present.
- *
- * Note: Passwords are still stored as plain text per your request (not secure).
+ * Now also generates workout plans when user completes registration with goal.
  */
 app.post('/signup', async (req, res) => {
   const {
@@ -88,18 +87,13 @@ app.post('/signup', async (req, res) => {
 
     if (existingUser) {
       // User exists -> decide if this is a registration conflict or a profile update.
-      // If client supplies both fullName and password and they don't match the existing record,
-      // treat as attempted registration (409). But if both match the existing record,
-      // proceed with update logic (so final-step updates that resend same password won't conflict).
       if (fullName && (typeof password !== 'undefined')) {
         const nameMatches = String(fullName).trim() === String(existingUser.fullName).trim();
         const passMatches = String(password) === String(existingUser.password);
 
-        // If either name or password don't match, we consider it a registration attempt with an already-taken email.
         if (!nameMatches || !passMatches) {
           return res.status(409).json({ error: "An account with this email address already exists. Please log in." });
         }
-        // If both match, fall through to apply any additional updates below.
       }
 
       // --- UPDATE LOGIC ---
@@ -112,21 +106,41 @@ app.post('/signup', async (req, res) => {
       if (goal !== undefined) profileUpdates.goal = goal;
       if (equipments !== undefined) profileUpdates.equipments = equipments;
       if (profileImage !== undefined) profileUpdates.profileImage = profileImage;
-
-      // If client explicitly provided fullName or password (and they matched existing), keep them as well.
-      // This handles the case where the client re-sends the same password/fullName during update.
       if (fullName !== undefined) profileUpdates.fullName = fullName;
-      if (password !== undefined) profileUpdates.password = password; // per your request, no hashing
+      if (password !== undefined) profileUpdates.password = password;
 
       // Apply updates only if there is something to update
       if (Object.keys(profileUpdates).length > 0) {
         await User.updateOne({ email: sanitizedEmail }, { $set: profileUpdates });
+        
+        // NEW: Generate workout plan if goal, weight, and height are provided
+        if (goal && weight && height) {
+          try {
+            const workoutData = generateWorkoutPlan(sanitizedEmail, weight, height, goal);
+            
+            // Check if workout plan already exists
+            const existingPlan = await WorkoutPlan.findOne({ userEmail: sanitizedEmail });
+            
+            if (existingPlan) {
+              // Update existing plan
+              await WorkoutPlan.updateOne({ userEmail: sanitizedEmail }, { $set: workoutData });
+              console.log(`✅ Updated workout plan for ${sanitizedEmail}`);
+            } else {
+              // Create new plan
+              const newWorkoutPlan = new WorkoutPlan(workoutData);
+              await newWorkoutPlan.save();
+              console.log(`✅ Created new workout plan for ${sanitizedEmail}`);
+            }
+          } catch (workoutError) {
+            console.error("❌ Error generating workout plan:", workoutError);
+            // Don't fail the entire request if workout generation fails
+          }
+        }
       }
 
       return res.status(200).json({ message: "Profile updated successfully!", email: sanitizedEmail });
     } else {
       // --- CREATE LOGIC ---
-      // The user does not exist, so this is the first step of the signup.
       if (!fullName || (typeof password === 'undefined' || password === null)) {
         return res.status(400).json({ error: "Full name and password are required for new account." });
       }
@@ -140,11 +154,79 @@ app.post('/signup', async (req, res) => {
 
       await newUser.save();
 
+      // NEW: Generate workout plan if all required data is present
+      if (goal && weight && height) {
+        try {
+          const workoutData = generateWorkoutPlan(sanitizedEmail, weight, height, goal);
+          const newWorkoutPlan = new WorkoutPlan(workoutData);
+          await newWorkoutPlan.save();
+          console.log(`✅ Created workout plan for new user: ${sanitizedEmail}`);
+        } catch (workoutError) {
+          console.error("❌ Error generating workout plan for new user:", workoutError);
+          // Don't fail the entire request if workout generation fails
+        }
+      }
+
       return res.status(201).json({ message: "Account created successfully!", email: sanitizedEmail });
     }
   } catch (err) {
     console.error("❌ Signup/Update error:", err);
     res.status(500).json({ error: "An internal server error occurred. Please try again." });
+  }
+});
+
+// NEW: Get workout plan for a user
+app.get('/workout-plan/:email', async (req, res) => {
+  try {
+    const rawEmail = req.params.email;
+    const sanitizedEmail = sanitizeEmail(decodeURIComponent(rawEmail));
+    if (!sanitizedEmail) return res.status(400).json({ error: 'Invalid email parameter.' });
+
+    const workoutPlan = await WorkoutPlan.findOne({ userEmail: sanitizedEmail });
+    if (!workoutPlan) {
+      return res.status(404).json({ error: 'Workout plan not found. Please complete your profile setup.' });
+    }
+    res.json(workoutPlan);
+  } catch (err) {
+    console.error("❌ Error fetching workout plan:", err);
+    res.status(500).json({ error: 'Failed to fetch workout plan.' });
+  }
+});
+
+// NEW: Regenerate workout plan (if user wants to update their plan)
+app.post('/regenerate-workout-plan', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const sanitizedEmail = sanitizeEmail(email);
+    if (!sanitizedEmail) return res.status(400).json({ error: "Email is required." });
+
+    // Get user data
+    const user = await User.findOne({ email: sanitizedEmail });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    if (!user.goal || !user.weight || !user.height) {
+      return res.status(400).json({ error: 'User profile incomplete. Please update your goal, weight, and height.' });
+    }
+
+    // Generate new workout plan
+    const workoutData = generateWorkoutPlan(sanitizedEmail, user.weight, user.height, user.goal);
+    
+    // Update existing plan or create new one
+    const existingPlan = await WorkoutPlan.findOne({ userEmail: sanitizedEmail });
+    
+    if (existingPlan) {
+      await WorkoutPlan.updateOne({ userEmail: sanitizedEmail }, { $set: workoutData });
+    } else {
+      const newWorkoutPlan = new WorkoutPlan(workoutData);
+      await newWorkoutPlan.save();
+    }
+
+    res.status(200).json({ message: 'Workout plan regenerated successfully!', workoutPlan: workoutData });
+  } catch (err) {
+    console.error("❌ Error regenerating workout plan:", err);
+    res.status(500).json({ error: 'Failed to regenerate workout plan.' });
   }
 });
 
