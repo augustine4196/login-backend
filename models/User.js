@@ -6,15 +6,15 @@ const userSchema = new mongoose.Schema({
   password: { type: String },
   gender: { type: String },
   age: { type: String },
-  height: { type: String },
-  weight: { type: String },
+  height: { type: String },   // in cm
+  weight: { type: String },   // in kg
   place: { type: String },
   equipments: { type: [String] },
   goal: { type: String },
   profileImage: { type: String },
-  
-  // This field will store the unique push notification subscription object for each user.
-  subscription: { type: Object } 
+  subscription: { type: Object },
+
+  bmi: { type: Number }   // <-- Add this field
 });
 
 module.exports = mongoose.model('User', userSchema);

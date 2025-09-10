@@ -83,26 +83,26 @@ app.post('/signup', async (req, res) => {
       return res.status(400).json({ error: "Email is required." });
     }
 
-    // Check if a user with this email already exists.
     const existingUser = await User.findOne({ email: sanitizedEmail });
 
+    const heightInMeters = parseFloat(height) / 100;
+    const weightInKg = parseFloat(weight);
+    let bmi = null;
+
+    if (!isNaN(heightInMeters) && heightInMeters > 0 && !isNaN(weightInKg)) {
+      bmi = parseFloat((weightInKg / (heightInMeters ** 2)).toFixed(2));
+    }
+
     if (existingUser) {
-      // User exists -> decide if this is a registration conflict or a profile update.
-      // If client supplies both fullName and password and they don't match the existing record,
-      // treat as attempted registration (409). But if both match the existing record,
-      // proceed with update logic (so final-step updates that resend same password won't conflict).
       if (fullName && (typeof password !== 'undefined')) {
         const nameMatches = String(fullName).trim() === String(existingUser.fullName).trim();
         const passMatches = String(password) === String(existingUser.password);
 
-        // If either name or password don't match, we consider it a registration attempt with an already-taken email.
         if (!nameMatches || !passMatches) {
           return res.status(409).json({ error: "An account with this email address already exists. Please log in." });
         }
-        // If both match, fall through to apply any additional updates below.
       }
 
-      // --- UPDATE LOGIC ---
       const profileUpdates = {};
       if (gender !== undefined) profileUpdates.gender = gender;
       if (age !== undefined) profileUpdates.age = age;
@@ -112,21 +112,16 @@ app.post('/signup', async (req, res) => {
       if (goal !== undefined) profileUpdates.goal = goal;
       if (equipments !== undefined) profileUpdates.equipments = equipments;
       if (profileImage !== undefined) profileUpdates.profileImage = profileImage;
-
-      // If client explicitly provided fullName or password (and they matched existing), keep them as well.
-      // This handles the case where the client re-sends the same password/fullName during update.
+      if (bmi !== null) profileUpdates.bmi = bmi;
       if (fullName !== undefined) profileUpdates.fullName = fullName;
-      if (password !== undefined) profileUpdates.password = password; // per your request, no hashing
+      if (password !== undefined) profileUpdates.password = password;
 
-      // Apply updates only if there is something to update
       if (Object.keys(profileUpdates).length > 0) {
         await User.updateOne({ email: sanitizedEmail }, { $set: profileUpdates });
       }
 
       return res.status(200).json({ message: "Profile updated successfully!", email: sanitizedEmail });
     } else {
-      // --- CREATE LOGIC ---
-      // The user does not exist, so this is the first step of the signup.
       if (!fullName || (typeof password === 'undefined' || password === null)) {
         return res.status(400).json({ error: "Full name and password are required for new account." });
       }
@@ -134,8 +129,9 @@ app.post('/signup', async (req, res) => {
       const newUser = new User({
         fullName,
         email: sanitizedEmail,
-        password, // plain text as requested (not recommended for production)
-        gender, age, height, weight, place, equipments, goal, profileImage
+        password,
+        gender, age, height, weight, place, equipments, goal, profileImage,
+        bmi
       });
 
       await newUser.save();
