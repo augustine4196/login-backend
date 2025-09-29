@@ -6,7 +6,6 @@ const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const axios = require('axios');
-const bcrypt = require('bcrypt');
 require('dotenv').config();
 
 // Required modules for the correct server structure
@@ -80,19 +79,30 @@ app.post('/signup', async (req, res) => {
 
   try {
     const sanitizedEmail = sanitizeEmail(email);
-    if (!sanitizedEmail) return res.status(400).json({ error: "Email is required." });
+    if (!sanitizedEmail) {
+      return res.status(400).json({ error: "Email is required." });
+    }
 
     const existingUser = await User.findOne({ email: sanitizedEmail });
 
     const heightInMeters = parseFloat(height) / 100;
     const weightInKg = parseFloat(weight);
     let bmi = null;
+
     if (!isNaN(heightInMeters) && heightInMeters > 0 && !isNaN(weightInKg)) {
       bmi = parseFloat((weightInKg / (heightInMeters ** 2)).toFixed(2));
     }
 
     if (existingUser) {
-      // Profile update
+      if (fullName && (typeof password !== 'undefined')) {
+        const nameMatches = String(fullName).trim() === String(existingUser.fullName).trim();
+        const passMatches = String(password) === String(existingUser.password);
+
+        if (!nameMatches || !passMatches) {
+          return res.status(409).json({ error: "An account with this email address already exists. Please log in." });
+        }
+      }
+
       const profileUpdates = {};
       if (gender !== undefined) profileUpdates.gender = gender;
       if (age !== undefined) profileUpdates.age = age;
@@ -104,31 +114,28 @@ app.post('/signup', async (req, res) => {
       if (profileImage !== undefined) profileUpdates.profileImage = profileImage;
       if (bmi !== null) profileUpdates.bmi = bmi;
       if (fullName !== undefined) profileUpdates.fullName = fullName;
-      if (password !== undefined) {
-        const hashedPassword = await bcrypt.hash(password, 10);
-        profileUpdates.password = hashedPassword;
-      }
+      if (password !== undefined) profileUpdates.password = password;
 
       if (Object.keys(profileUpdates).length > 0) {
         await User.updateOne({ email: sanitizedEmail }, { $set: profileUpdates });
       }
 
       return res.status(200).json({ message: "Profile updated successfully!", email: sanitizedEmail });
-
     } else {
-      if (!fullName || !password) return res.status(400).json({ error: "Full name and password are required for new account." });
-
-      const hashedPassword = await bcrypt.hash(password, 10);
+      if (!fullName || (typeof password === 'undefined' || password === null)) {
+        return res.status(400).json({ error: "Full name and password are required for new account." });
+      }
 
       const newUser = new User({
         fullName,
         email: sanitizedEmail,
-        password: hashedPassword,
+        password,
         gender, age, height, weight, place, equipments, goal, profileImage,
         bmi
       });
 
       await newUser.save();
+
       return res.status(201).json({ message: "Account created successfully!", email: sanitizedEmail });
     }
   } catch (err) {
@@ -137,18 +144,20 @@ app.post('/signup', async (req, res) => {
   }
 });
 
-
 app.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     const sanitizedEmail = sanitizeEmail(email);
-    if (!sanitizedEmail || !password) return res.status(400).json({ error: "Email and password are required." });
+    if (!sanitizedEmail || (typeof password === 'undefined')) {
+      return res.status(400).json({ error: "Email and password are required." });
+    }
 
     const user = await User.findOne({ email: sanitizedEmail });
     if (!user) return res.status(401).json({ error: "User not found." });
 
-    const passwordMatch = await bcrypt.compare(password, user.password);
-    if (!passwordMatch) return res.status(401).json({ error: "Incorrect password." });
+    if (String(user.password) !== String(password)) {
+      return res.status(401).json({ error: "Incorrect password." });
+    }
 
     res.status(200).json({
       message: "Login successful!",
@@ -156,13 +165,11 @@ app.post('/login', async (req, res) => {
       email: user.email,
       profileImage: user.profileImage || null
     });
-
   } catch (err) {
     console.error("❌ Login error:", err);
     res.status(500).json({ error: "Login failed. Please try again." });
   }
 });
-
 
 // --- Chatbot Route (UNCHANGED) ---
 app.post('/ask', async (req, res) => {
