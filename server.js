@@ -6,6 +6,7 @@ const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const axios = require('axios');
+const bcrypt = require('bcryptjs'); // <-- ADD THIS LINE
 require('dotenv').config();
 
 // Required modules for the correct server structure
@@ -85,24 +86,28 @@ app.post('/signup', async (req, res) => {
 
     const existingUser = await User.findOne({ email: sanitizedEmail });
 
+    // --- BMI Calculation (unchanged) ---
     const heightInMeters = parseFloat(height) / 100;
     const weightInKg = parseFloat(weight);
     let bmi = null;
-
     if (!isNaN(heightInMeters) && heightInMeters > 0 && !isNaN(weightInKg)) {
       bmi = parseFloat((weightInKg / (heightInMeters ** 2)).toFixed(2));
     }
 
+    // --- Logic for an EXISTING user ---
     if (existingUser) {
-      if (fullName && (typeof password !== 'undefined')) {
+      // This logic checks if a user is accidentally trying to sign up again.
+      if (fullName && (typeof password !== 'undefined' && password !== null)) {
         const nameMatches = String(fullName).trim() === String(existingUser.fullName).trim();
-        const passMatches = String(password) === String(existingUser.password);
+        // MODIFIED: Compare plain text password from request with the hashed password in the DB
+        const passMatches = await bcrypt.compare(password, existingUser.password);
 
         if (!nameMatches || !passMatches) {
           return res.status(409).json({ error: "An account with this email address already exists. Please log in." });
         }
       }
 
+      // This logic handles profile updates for an existing, logged-in user.
       const profileUpdates = {};
       if (gender !== undefined) profileUpdates.gender = gender;
       if (age !== undefined) profileUpdates.age = age;
@@ -114,22 +119,33 @@ app.post('/signup', async (req, res) => {
       if (profileImage !== undefined) profileUpdates.profileImage = profileImage;
       if (bmi !== null) profileUpdates.bmi = bmi;
       if (fullName !== undefined) profileUpdates.fullName = fullName;
-      if (password !== undefined) profileUpdates.password = password;
+
+      // MODIFIED: If a new password is provided during an update, HASH IT before saving.
+      if (password !== undefined && password !== '') {
+        const salt = await bcrypt.genSalt(10); // Generate a salt
+        profileUpdates.password = await bcrypt.hash(password, salt); // Hash the new password
+      }
 
       if (Object.keys(profileUpdates).length > 0) {
         await User.updateOne({ email: sanitizedEmail }, { $set: profileUpdates });
       }
 
       return res.status(200).json({ message: "Profile updated successfully!", email: sanitizedEmail });
+    
+    // --- Logic for a NEW user ---
     } else {
-      if (!fullName || (typeof password === 'undefined' || password === null)) {
+      if (!fullName || (typeof password === 'undefined' || password === null || password === '')) {
         return res.status(400).json({ error: "Full name and password are required for new account." });
       }
+
+      // NEW: Hash the password before creating the new user
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password, salt);
 
       const newUser = new User({
         fullName,
         email: sanitizedEmail,
-        password,
+        password: hashedPassword, // MODIFIED: Save the hashed password
         gender, age, height, weight, place, equipments, goal, profileImage,
         bmi
       });
@@ -144,21 +160,30 @@ app.post('/signup', async (req, res) => {
   }
 });
 
+
 app.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     const sanitizedEmail = sanitizeEmail(email);
-    if (!sanitizedEmail || (typeof password === 'undefined')) {
+    if (!sanitizedEmail || !password) { // simplified check
       return res.status(400).json({ error: "Email and password are required." });
     }
 
+    // Find user by email
     const user = await User.findOne({ email: sanitizedEmail });
-    if (!user) return res.status(401).json({ error: "User not found." });
-
-    if (String(user.password) !== String(password)) {
-      return res.status(401).json({ error: "Incorrect password." });
+    if (!user) {
+        // Use a generic message to prevent leaking info about which emails are registered
+        return res.status(401).json({ error: "Invalid credentials." });
     }
 
+    // MODIFIED: Compare the provided password with the stored hash
+    const isMatch = await bcrypt.compare(password, user.password);
+
+    if (!isMatch) {
+      return res.status(401).json({ error: "Invalid credentials." });
+    }
+
+    // If passwords match, login is successful
     res.status(200).json({
       message: "Login successful!",
       fullName: user.fullName,
