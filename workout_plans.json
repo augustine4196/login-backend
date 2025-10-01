@@ -1,6 +1,6 @@
 {
   "workoutPlans": {
-    "getFit": {
+    "getfit": {
       "goal": "Get Fit",
       "description": "A balanced plan to improve overall strength, endurance, and general fitness.",
       "monday": [
@@ -74,7 +74,7 @@
         { "name": "Power Tower Knee Raises", "target": "15 Repetitions", "requirements": "Power Tower", "imageUrl": "assets/images/power_tower.png", "videoUrl": "assets/videos/power_tower.mp4" }
       ]
     },
-    "loseWeight": {
+    "loseweight": {
       "goal": "Lose Weight",
       "description": "A high-intensity plan focused on calorie burning with a combination of strength training and increased cardio.",
        "monday": [
@@ -148,7 +148,7 @@
         { "name": "Pushups", "target": "Max Repetitions", "requirements": "No Equipment", "imageUrl": "assets/images/pushups.png", "videoUrl": "assets/videos/pushups.mp4" }
       ]
     },
-    "gainWeight": {
+    "gainweight": {
       "goal": "Gain Weight",
       "description": "A strength-focused plan emphasizing compound movements to build muscle mass.",
       "monday": [
@@ -222,7 +222,7 @@
         { "name": "Treadmill", "target": "15 Minutes (Light Jog)", "requirements": "Treadmill Required", "imageUrl": "assets/images/treadmill.png", "videoUrl": "assets/videos/treadmill.mp4" }
       ]
     },
-    "bodyWeight": {
+    "bodyweight": {
       "goal": "Body Weight",
       "description": "A plan focused on exercises using your own body weight for resistance. Ideal for minimal equipment setups.",
       "monday": [
