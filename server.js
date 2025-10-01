@@ -6,7 +6,9 @@ const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const axios = require('axios');
-const bcrypt = require('bcryptjs'); 
+const bcrypt = require('bcryptjs'); // <-- ADD THIS LINE
+const fs = require('fs').promises; // Use promises for async file reading
+const path = require('path');
 require('dotenv').config();
 
 // Required modules for the correct server structure
@@ -30,14 +32,7 @@ app.use(cors({
   allowedHeaders: "Content-Type, Authorization" // Explicitly allow headers
 }));
 
-// ==================================================================
-// === MODIFICATION START: Increased JSON payload size for images ===
-// ==================================================================
-// Use bodyParser with an increased limit to handle Base64 image uploads
-app.use(bodyParser.json({ limit: '10mb' })); 
-// ==================================================================
-// === MODIFICATION END =============================================
-// ==================================================================
+app.use(bodyParser.json());
 
 // small helper to sanitize email consistently
 function sanitizeEmail(raw) {
@@ -68,21 +63,22 @@ app.post('/check-email', async (req, res) => {
   }
 });
 
-
+// --- User Account Routes (MODIFIED FOR EMAIL CHECK) ---
+/**
+ * Handles both initial user creation and subsequent profile updates.
+ * - If the email does NOT exist, it creates a new user.
+ * - If the email DOES exist:
+ *   - If client is attempting a new registration (different fullName/password) -> 409
+ *   - Otherwise treat it as a profile update and apply fields that are present.
+ *
+ * Note: Passwords are still stored as plain text per your request (not secure).
+ */
 app.post('/signup', async (req, res) => {
-  // ======================================================================
-  // === MODIFICATION START: Destructure new fields from request body =====
-  // ======================================================================
   const {
     fullName, email, password,
     gender, age, height, weight,
-    place, equipments, goal, profileImage,
-    // New fields from the profile edit page:
-    bio, primaryGoal, weeklyGoal, targetWeight 
+    place, equipments, goal, profileImage
   } = req.body;
-  // ======================================================================
-  // === MODIFICATION END =================================================
-  // ======================================================================
 
   try {
     const sanitizedEmail = sanitizeEmail(email);
@@ -100,11 +96,12 @@ app.post('/signup', async (req, res) => {
       bmi = parseFloat((weightInKg / (heightInMeters ** 2)).toFixed(2));
     }
 
-    // --- Logic for an EXISTING user (This is where profile updates happen) ---
+    // --- Logic for an EXISTING user ---
     if (existingUser) {
       // This logic checks if a user is accidentally trying to sign up again.
       if (fullName && (typeof password !== 'undefined' && password !== null)) {
         const nameMatches = String(fullName).trim() === String(existingUser.fullName).trim();
+        // MODIFIED: Compare plain text password from request with the hashed password in the DB
         const passMatches = await bcrypt.compare(password, existingUser.password);
 
         if (!nameMatches || !passMatches) {
@@ -125,22 +122,10 @@ app.post('/signup', async (req, res) => {
       if (bmi !== null) profileUpdates.bmi = bmi;
       if (fullName !== undefined) profileUpdates.fullName = fullName;
 
-      // ======================================================================
-      // === MODIFICATION START: Add new profile fields to the update object ==
-      // ======================================================================
-      if (bio !== undefined) profileUpdates.bio = bio;
-      if (primaryGoal !== undefined) profileUpdates.primaryGoal = primaryGoal;
-      if (weeklyGoal !== undefined) profileUpdates.weeklyGoal = weeklyGoal;
-      if (targetWeight !== undefined) profileUpdates.targetWeight = targetWeight;
-      // ======================================================================
-      // === MODIFICATION END =================================================
-      // ======================================================================
-
-
-      // If a new password is provided during an update, HASH IT before saving.
+      // MODIFIED: If a new password is provided during an update, HASH IT before saving.
       if (password !== undefined && password !== '') {
-        const salt = await bcrypt.genSalt(10); 
-        profileUpdates.password = await bcrypt.hash(password, salt);
+        const salt = await bcrypt.genSalt(10); // Generate a salt
+        profileUpdates.password = await bcrypt.hash(password, salt); // Hash the new password
       }
 
       if (Object.keys(profileUpdates).length > 0) {
@@ -149,22 +134,22 @@ app.post('/signup', async (req, res) => {
 
       return res.status(200).json({ message: "Profile updated successfully!", email: sanitizedEmail });
     
-    // --- Logic for a NEW user (Unchanged) ---
+    // --- Logic for a NEW user ---
     } else {
       if (!fullName || (typeof password === 'undefined' || password === null || password === '')) {
         return res.status(400).json({ error: "Full name and password are required for new account." });
       }
 
+      // NEW: Hash the password before creating the new user
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(password, salt);
 
       const newUser = new User({
         fullName,
         email: sanitizedEmail,
-        password: hashedPassword,
+        password: hashedPassword, // MODIFIED: Save the hashed password
         gender, age, height, weight, place, equipments, goal, profileImage,
         bmi
-        // Note: New fields (bio, etc.) will use defaults from the Mongoose schema here
       });
 
       await newUser.save();
@@ -182,21 +167,25 @@ app.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     const sanitizedEmail = sanitizeEmail(email);
-    if (!sanitizedEmail || !password) {
+    if (!sanitizedEmail || !password) { // simplified check
       return res.status(400).json({ error: "Email and password are required." });
     }
 
+    // Find user by email
     const user = await User.findOne({ email: sanitizedEmail });
     if (!user) {
+        // Use a generic message to prevent leaking info about which emails are registered
         return res.status(401).json({ error: "Invalid credentials." });
     }
 
+    // MODIFIED: Compare the provided password with the stored hash
     const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
       return res.status(401).json({ error: "Invalid credentials." });
     }
 
+    // If passwords match, login is successful
     res.status(200).json({
       message: "Login successful!",
       fullName: user.fullName,
@@ -208,6 +197,56 @@ app.post('/login', async (req, res) => {
     res.status(500).json({ error: "Login failed. Please try again." });
   }
 });
+
+
+
+// --- NEW: Route to get the daily workout plan for a user ---
+app.get('/api/workout-plan/:email', async (req, res) => {
+    try {
+        // 1. Get user's goal from their email
+        const userEmail = sanitizeEmail(decodeURIComponent(req.params.email));
+        if (!userEmail) {
+            return res.status(400).json({ error: 'User email is required.' });
+        }
+
+        const user = await User.findOne({ email: userEmail });
+        if (!user || !user.goal) {
+            return res.status(404).json({ error: 'User not found or no goal set for the user.' });
+        }
+
+        // 2. Read the workout plans JSON file
+        const filePath = path.join(__dirname, 'workout_plans.json');
+        const fileContent = await fs.readFile(filePath, 'utf8');
+        const allPlans = JSON.parse(fileContent);
+
+        // 3. Determine the correct plan based on the user's goal and current day
+        // Convert goal "Get Fit" to "getFit" to match JSON keys
+        const userGoalKey = user.goal.replace(/\s+/g, '').toLowerCase();
+        
+        // Get current day as a lowercase string (e.g., "monday", "tuesday")
+        const currentDayKey = new Date().toLocaleString('en-US', { weekday: 'long' }).toLowerCase();
+
+        const planForGoal = allPlans.workoutPlans[userGoalKey];
+        if (!planForGoal) {
+            return res.status(404).json({ error: 'Workout plan for the specified goal not found.' });
+        }
+
+        const todaysTasks = planForGoal[currentDayKey];
+        if (!todaysTasks || todaysTasks.length === 0) {
+            return res.status(404).json({ error: `No tasks found for ${currentDayKey}.` });
+        }
+        
+        // 4. Send today's tasks back to the client
+        res.status(200).json(todaysTasks);
+
+    } catch (error) {
+        console.error("❌ Error fetching workout plan:", error);
+        res.status(500).json({ error: 'Failed to fetch workout plan.' });
+    }
+});
+
+
+
 
 // --- Chatbot Route (UNCHANGED) ---
 app.post('/ask', async (req, res) => {
@@ -255,7 +294,7 @@ app.post('/ask', async (req, res) => {
   }
 });
 
-// --- User Data Routes (UNCHANGED) ---
+// --- User Data Routes (UNCHANGED except email sanitization) ---
 app.get('/user/:email', async (req, res) => {
   try {
     const rawEmail = req.params.email;
@@ -321,7 +360,7 @@ app.get('/notifications/unread-count/:email', async (req, res) => {
   }
 });
 
-// --- Challenge Routes (UNCHANGED) ---
+// --- Challenge Routes (UNCHANGED except email sanitization) ---
 app.get('/challenges/received/:email', async (req, res) => {
   try {
     const sanitizedEmail = sanitizeEmail(req.params.email);
