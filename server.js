@@ -25,11 +25,11 @@ const Challenge = require('./models/Challenge');
 // =================================================================
 const app = express();
 
-// Correct, explicit CORS configuration to allow all origins
+// server.js (UPDATED CORS CONFIGURATION)
 app.use(cors({
-  origin: "*", // This allows all origins (okay for dev; lock down in prod)
-  methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS", // Explicitly allow methods
-  allowedHeaders: "Content-Type, Authorization" // Explicitly allow headers
+    origin: "https://personalize-fitness-trainer.netlify.app", // Allow requests ONLY from your Netlify app
+    methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS",
+    allowedHeaders: "Content-Type, Authorization"
 }));
 
 app.use(bodyParser.json());
