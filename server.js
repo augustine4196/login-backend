@@ -6,8 +6,8 @@ const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const axios = require('axios');
-const bcrypt = require('bcryptjs'); // <-- ADD THIS LINE
-const fs = require('fs').promises; // Use promises for async file reading
+const bcrypt = require('bcryptjs');
+const fs = require('fs').promises;
 const path = require('path');
 require('dotenv').config();
 
@@ -26,12 +26,30 @@ const ExerciseSession = require('./models/ExerciseSession');
 // =================================================================
 const app = express();
 
-// server.js (UPDATED CORS CONFIGURATION)
+// --- MODIFIED: ROBUST CORS CONFIGURATION TO FIX DEPLOYMENT ERRORS ---
+// This list contains the URLs that are allowed to make requests to your server.
+const allowedOrigins = [
+  "https://personalize-fitness-trainer.netlify.app",
+  // You can add your local development URL here for testing if needed
+  // e.g., "http://127.0.0.1:5500" 
+];
+
 app.use(cors({
-    origin: "https://personalize-fitness-trainer.netlify.app", // Allow requests ONLY from your Netlify app
-    methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS",
-    allowedHeaders: "Content-Type, Authorization"
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
+  methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS",
+  allowedHeaders: "Content-Type, Authorization"
 }));
+// --- END OF MODIFICATION ---
+
 
 app.use(bodyParser.json());
 
@@ -42,7 +60,7 @@ function sanitizeEmail(raw) {
 }
 
 // =================================================================
-// --- 3. ALL API ROUTES ---
+// --- 3. ALL API ROUTES (UNCHANGED) ---
 // =================================================================
 
 app.get("/", (req, res) => {
@@ -64,16 +82,7 @@ app.post('/check-email', async (req, res) => {
   }
 });
 
-// --- User Account Routes (MODIFIED FOR EMAIL CHECK) ---
-/**
- * Handles both initial user creation and subsequent profile updates.
- * - If the email does NOT exist, it creates a new user.
- * - If the email DOES exist:
- *   - If client is attempting a new registration (different fullName/password) -> 409
- *   - Otherwise treat it as a profile update and apply fields that are present.
- *
- * Note: Passwords are still stored as plain text per your request (not secure).
- */
+// --- User Account Routes ---
 app.post('/signup', async (req, res) => {
   const {
     fullName, email, password,
@@ -102,7 +111,6 @@ app.post('/signup', async (req, res) => {
       // This logic checks if a user is accidentally trying to sign up again.
       if (fullName && (typeof password !== 'undefined' && password !== null)) {
         const nameMatches = String(fullName).trim() === String(existingUser.fullName).trim();
-        // MODIFIED: Compare plain text password from request with the hashed password in the DB
         const passMatches = await bcrypt.compare(password, existingUser.password);
 
         if (!nameMatches || !passMatches) {
@@ -123,10 +131,9 @@ app.post('/signup', async (req, res) => {
       if (bmi !== null) profileUpdates.bmi = bmi;
       if (fullName !== undefined) profileUpdates.fullName = fullName;
 
-      // MODIFIED: If a new password is provided during an update, HASH IT before saving.
       if (password !== undefined && password !== '') {
-        const salt = await bcrypt.genSalt(10); // Generate a salt
-        profileUpdates.password = await bcrypt.hash(password, salt); // Hash the new password
+        const salt = await bcrypt.genSalt(10);
+        profileUpdates.password = await bcrypt.hash(password, salt);
       }
 
       if (Object.keys(profileUpdates).length > 0) {
@@ -141,14 +148,13 @@ app.post('/signup', async (req, res) => {
         return res.status(400).json({ error: "Full name and password are required for new account." });
       }
 
-      // NEW: Hash the password before creating the new user
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(password, salt);
 
       const newUser = new User({
         fullName,
         email: sanitizedEmail,
-        password: hashedPassword, // MODIFIED: Save the hashed password
+        password: hashedPassword,
         gender, age, height, weight, place, equipments, goal, profileImage,
         bmi
       });
@@ -168,25 +174,21 @@ app.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     const sanitizedEmail = sanitizeEmail(email);
-    if (!sanitizedEmail || !password) { // simplified check
+    if (!sanitizedEmail || !password) {
       return res.status(400).json({ error: "Email and password are required." });
     }
 
-    // Find user by email
     const user = await User.findOne({ email: sanitizedEmail });
     if (!user) {
-        // Use a generic message to prevent leaking info about which emails are registered
         return res.status(401).json({ error: "Invalid credentials." });
     }
 
-    // MODIFIED: Compare the provided password with the stored hash
     const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
       return res.status(401).json({ error: "Invalid credentials." });
     }
 
-    // If passwords match, login is successful
     res.status(200).json({
       message: "Login successful!",
       fullName: user.fullName,
@@ -199,12 +201,9 @@ app.post('/login', async (req, res) => {
   }
 });
 
-
-
-// --- NEW: Route to get the daily workout plan for a user ---
+// --- Route to get the daily workout plan for a user ---
 app.get('/api/workout-plan/:email', async (req, res) => {
     try {
-        // 1. Get user's goal from their email
         const userEmail = sanitizeEmail(decodeURIComponent(req.params.email));
         if (!userEmail) {
             return res.status(400).json({ error: 'User email is required.' });
@@ -215,16 +214,11 @@ app.get('/api/workout-plan/:email', async (req, res) => {
             return res.status(404).json({ error: 'User not found or no goal set for the user.' });
         }
 
-        // 2. Read the workout plans JSON file
         const filePath = path.join(__dirname, 'workout_plans.json');
         const fileContent = await fs.readFile(filePath, 'utf8');
         const allPlans = JSON.parse(fileContent);
 
-        // 3. Determine the correct plan based on the user's goal and current day
-        // Convert goal "Get Fit" to "getFit" to match JSON keys
         const userGoalKey = user.goal.replace(/\s+/g, '').toLowerCase();
-        
-        // Get current day as a lowercase string (e.g., "monday", "tuesday")
         const currentDayKey = new Date().toLocaleString('en-US', { weekday: 'long' }).toLowerCase();
 
         const planForGoal = allPlans.workoutPlans[userGoalKey];
@@ -237,7 +231,6 @@ app.get('/api/workout-plan/:email', async (req, res) => {
             return res.status(404).json({ error: `No tasks found for ${currentDayKey}.` });
         }
         
-        // 4. Send today's tasks back to the client
         res.status(200).json(todaysTasks);
 
     } catch (error) {
@@ -246,17 +239,15 @@ app.get('/api/workout-plan/:email', async (req, res) => {
     }
 });
 
-// --- NEW: Route to log a completed exercise session ---
+// --- Route to log a completed exercise session ---
 app.post('/api/log-exercise', async (req, res) => {
     try {
         const { email, exerciseName, reps, durationSeconds, caloriesBurned } = req.body;
 
-        // Basic validation
-        if (!email || reps === undefined || durationSeconds === undefined || caloriesBurned === undefined) {
+        if (!email || !exerciseName || reps === undefined || durationSeconds === undefined || caloriesBurned === undefined) {
             return res.status(400).json({ error: 'Missing required performance data.' });
         }
         
-        // Sanitize the email just in case
         const sanitizedEmail = email.toLowerCase().trim();
 
         const newSession = new ExerciseSession({
@@ -278,7 +269,7 @@ app.post('/api/log-exercise', async (req, res) => {
 });
 
 
-// --- Chatbot Route (UNCHANGED) ---
+// --- Chatbot Route ---
 app.post('/ask', async (req, res) => {
   const { question } = req.body;
   if (!question) {
@@ -324,7 +315,7 @@ app.post('/ask', async (req, res) => {
   }
 });
 
-// --- User Data Routes (UNCHANGED except email sanitization) ---
+// --- User Data Routes ---
 app.get('/user/:email', async (req, res) => {
   try {
     const rawEmail = req.params.email;
@@ -352,7 +343,7 @@ app.get('/admin/users', async (req, res) => {
   }
 });
 
-// --- Notification Routes (UNCHANGED) ---
+// --- Notification Routes ---
 app.post('/subscribe', async (req, res) => {
   res.status(200).json({ message: 'Subscription endpoint is active.' });
 });
@@ -390,7 +381,7 @@ app.get('/notifications/unread-count/:email', async (req, res) => {
   }
 });
 
-// --- Challenge Routes (UNCHANGED except email sanitization) ---
+// --- Challenge Routes ---
 app.get('/challenges/received/:email', async (req, res) => {
   try {
     const sanitizedEmail = sanitizeEmail(req.params.email);
