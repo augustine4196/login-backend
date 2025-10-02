@@ -26,8 +26,8 @@ const ExerciseSession = require('./models/ExerciseSession');
 // =================================================================
 const app = express();
 
-// --- THIS IS THE ONLY MODIFICATION: A MORE ROBUST CORS CONFIGURATION ---
-// This configuration explicitly allows your Netlify site to make requests and fixes the error.
+// --- THIS IS THE ONLY CHANGE: THE FIX FOR THE CORS ERROR ---
+// This configuration explicitly allows your Netlify site to make requests.
 const allowedOrigins = [
   "https://personalize-fitness-trainer.netlify.app",
   // You can add local development URLs here for testing if needed
@@ -48,7 +48,7 @@ app.use(cors({
   methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS",
   allowedHeaders: "Content-Type, Authorization"
 }));
-// --- END OF MODIFICATION ---
+// --- END OF THE FIX ---
 
 
 app.use(bodyParser.json());
@@ -257,120 +257,42 @@ async function startServer() {
   try {
     await mongoose.connect(process.env.MONGO_URI);
     console.log("✅ Connected to MongoDB Atlas");
-
     const server = http.createServer(app);
-
-    const io = new Server(server, {
-      cors: { origin: "*" },
-      pingInterval: 20000,
-      pingTimeout: 5000,
-    });
-
+    const io = new Server(server, { cors: { origin: "*" }, pingInterval: 20000, pingTimeout: 5000 });
     const userSockets = {};
     const challengeRooms = {};
-
     io.on('connection', (socket) => {
       console.log(`✅ WebSocket User connected: ${socket.id}`);
-      
-      socket.on('register', (userEmail) => {
-        if(userEmail) {
-          socket.userEmail = userEmail;
-          userSockets[userEmail] = socket.id;
-          console.log(`User ${userEmail} registered with socket ${socket.id}`);
-        }
-      });
-
-      socket.on('disconnect', () => {
-        if(socket.userEmail) {
-          delete userSockets[socket.userEmail];
-          console.log(`User ${socket.userEmail} disconnected.`);
-        }
-        if (socket.roomName) {
-          socket.to(socket.roomName).emit('peer-disconnected');
-          if (challengeRooms[socket.roomName]) {
-            challengeRooms[socket.roomName].readyPlayers.delete(socket.id);
-            if (challengeRooms[socket.roomName].readyPlayers.size === 0) {
-              delete challengeRooms[socket.roomName];
-            }
-          }
-        }
-      });
-      
-      // Challenge Flow
-      socket.on('accept-challenge', async ({ challengeId, challengerEmail, challengeRoomId }) => {
-        await Challenge.findByIdAndUpdate(challengeId, { status: 'accepted' });
-        const challengerSocketId = userSockets[challengerEmail];
-        if (challengerSocketId) {
-          io.to(challengerSocketId).emit('challenge-accepted-redirect', { challengeRoomId });
-        }
-        socket.emit('challenge-accepted-redirect', { challengeRoomId });
-      });
-      
-      // Challenge Setup Sync
-      socket.on('setup-change', ({ roomName, exercise, reps }) => {
-        socket.to(roomName).emit('setup-update', { exercise, reps });
-      });
-
-      socket.on('start-challenge-now', ({ roomName, exercise, reps }) => {
-        io.to(roomName).emit('start-the-challenge', { exercise, reps });
-      });
-
-      // WebRTC Signaling
-      socket.on('join-challenge-room', (roomName) => {
-        socket.roomName = roomName;
-        socket.join(roomName);
-        socket.to(roomName).emit('peer-joined');
-      });
+      socket.on('register', (userEmail) => { if(userEmail) { socket.userEmail = userEmail; userSockets[userEmail] = socket.id; console.log(`User ${userEmail} registered with socket ${socket.id}`); } });
+      socket.on('disconnect', () => { if(socket.userEmail) { delete userSockets[socket.userEmail]; console.log(`User ${socket.userEmail} disconnected.`); } if (socket.roomName) { socket.to(socket.roomName).emit('peer-disconnected'); if (challengeRooms[socket.roomName]) { challengeRooms[socket.roomName].readyPlayers.delete(socket.id); if (challengeRooms[socket.roomName].readyPlayers.size === 0) { delete challengeRooms[socket.roomName]; } } } });
+      socket.on('accept-challenge', async ({ challengeId, challengerEmail, challengeRoomId }) => { await Challenge.findByIdAndUpdate(challengeId, { status: 'accepted' }); const challengerSocketId = userSockets[challengerEmail]; if (challengerSocketId) { io.to(challengerSocketId).emit('challenge-accepted-redirect', { challengeRoomId }); } socket.emit('challenge-accepted-redirect', { challengeRoomId }); });
+      socket.on('setup-change', ({ roomName, exercise, reps }) => { socket.to(roomName).emit('setup-update', { exercise, reps }); });
+      socket.on('start-challenge-now', ({ roomName, exercise, reps }) => { io.to(roomName).emit('start-the-challenge', { exercise, reps }); });
+      socket.on('join-challenge-room', (roomName) => { socket.roomName = roomName; socket.join(roomName); socket.to(roomName).emit('peer-joined'); });
       socket.on('webrtc-offer', (data) => socket.to(data.roomName).emit('webrtc-offer', data.sdp));
       socket.on('webrtc-answer', (data) => socket.to(data.roomName).emit('webrtc-answer', data.sdp));
       socket.on('webrtc-ice-candidate', (data) => socket.to(data.roomName).emit('webrtc-ice-candidate', data.candidate));
-
-      socket.on('player-ready', (roomName) => {
-        if (!challengeRooms[roomName]) {
-          challengeRooms[roomName] = { readyPlayers: new Set() };
-        }
-        challengeRooms[roomName].readyPlayers.add(socket.id);
-        if (challengeRooms[roomName].readyPlayers.size === 2) {
-          io.to(roomName).emit('all-players-ready');
-        }
-      });
-
-      // AI Game Sync
+      socket.on('player-ready', (roomName) => { if (!challengeRooms[roomName]) { challengeRooms[roomName] = { readyPlayers: new Set() }; } challengeRooms[roomName].readyPlayers.add(socket.id); if (challengeRooms[roomName].readyPlayers.size === 2) { io.to(roomName).emit('all-players-ready'); } });
       socket.on('start-game', ({ roomName, winningScore }) => io.to(roomName).emit('game-start-sync', winningScore));
       socket.on('rep-update', ({ roomName, count }) => socket.to(roomName).emit('opponent-rep-update', count));
       socket.on('finish-game', ({ roomName, winnerEmail }) => io.to(roomName).emit('game-over-sync', { winnerEmail }));
     });
-
     app.post('/send-challenge', async (req, res) => {
       const { fromName, fromEmail, toEmail } = req.body;
       try {
         const opponent = await User.findOne({ email: toEmail });
         if (!opponent) return res.status(404).json({ error: 'Recipient not found.' });
-
-        const newChallenge = new Challenge({
-          challengerName: fromName,
-          challengerEmail: fromEmail,
-          opponentEmail: toEmail,
-          challengeRoomId: `challenge_${new Date().getTime()}`
-        });
+        const newChallenge = new Challenge({ challengerName: fromName, challengerEmail: fromEmail, opponentEmail: toEmail, challengeRoomId: `challenge_${new Date().getTime()}` });
         await newChallenge.save();
-        
         const opponentSocketId = userSockets[toEmail];
-        if (opponentSocketId) {
-          io.to(opponentSocketId).emit('new-challenge', newChallenge);
-        }
-        
+        if (opponentSocketId) { io.to(opponentSocketId).emit('new-challenge', newChallenge); }
         res.status(200).json({ message: 'Challenge sent successfully.' });
       } catch (error) {
         console.error("❌ send-challenge error:", error);
         res.status(500).json({ error: 'Failed to send challenge.' });
       }
     });
-
-    server.listen(PORT, () => {
-      console.log(`🚀 Server (HTTP + WebSocket) running on port ${PORT}`);
-    });
-
+    server.listen(PORT, () => { console.log(`🚀 Server (HTTP + WebSocket) running on port ${PORT}`); });
   } catch (err) {
     console.error("❌ MongoDB connection error: Could not start server.", err);
     process.exit(1);
