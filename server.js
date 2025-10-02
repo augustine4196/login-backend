@@ -19,6 +19,7 @@ const { Server } = require("socket.io");
 const User = require('./models/User');
 const Notification = require('./models/Notification');
 const Challenge = require('./models/Challenge');
+const ExerciseSession = require('./models/ExerciseSession');
 
 // =================================================================
 // --- 2. INITIALIZATION & MIDDLEWARE ---
@@ -245,7 +246,36 @@ app.get('/api/workout-plan/:email', async (req, res) => {
     }
 });
 
+// --- NEW: Route to log a completed exercise session ---
+app.post('/api/log-exercise', async (req, res) => {
+    try {
+        const { email, exerciseName, reps, durationSeconds, caloriesBurned } = req.body;
 
+        // Basic validation
+        if (!email || reps === undefined || durationSeconds === undefined || caloriesBurned === undefined) {
+            return res.status(400).json({ error: 'Missing required performance data.' });
+        }
+        
+        // Sanitize the email just in case
+        const sanitizedEmail = email.toLowerCase().trim();
+
+        const newSession = new ExerciseSession({
+            email: sanitizedEmail,
+            exerciseName,
+            reps,
+            durationSeconds,
+            caloriesBurned
+        });
+
+        await newSession.save();
+
+        res.status(201).json({ message: 'Workout session saved successfully!', data: newSession });
+
+    } catch (error) {
+        console.error("❌ Error logging exercise session:", error);
+        res.status(500).json({ error: 'Failed to save workout session.' });
+    }
+});
 
 
 // --- Chatbot Route (UNCHANGED) ---
