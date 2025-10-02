@@ -28,15 +28,16 @@ const app = express();
 
 // --- MODIFIED: ROBUST CORS CONFIGURATION TO FIX DEPLOYMENT ERRORS ---
 // This list contains the URLs that are allowed to make requests to your server.
+// --- MODIFIED: ROBUST CORS CONFIGURATION TO FIX DEPLOYMENT ERRORS ---
 const allowedOrigins = [
   "https://personalize-fitness-trainer.netlify.app",
-  // You can add your local development URL here for testing if needed
+  // You can add local development URLs here for testing if needed
   // e.g., "http://127.0.0.1:5500" 
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
+    // Allow requests with no origin (like mobile apps, curl, or Postman)
     if (!origin) return callback(null, true);
     
     if (allowedOrigins.indexOf(origin) === -1) {
