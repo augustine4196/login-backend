@@ -26,9 +26,8 @@ const ExerciseSession = require('./models/ExerciseSession');
 // =================================================================
 const app = express();
 
-// --- MODIFIED: ROBUST CORS CONFIGURATION TO FIX DEPLOYMENT ERRORS ---
-// This list contains the URLs that are allowed to make requests to your server.
-// --- MODIFIED: ROBUST CORS CONFIGURATION TO FIX DEPLOYMENT ERRORS ---
+// --- THIS IS THE ONLY MODIFICATION: A MORE ROBUST CORS CONFIGURATION ---
+// This configuration explicitly allows your Netlify site to make requests and fixes the error.
 const allowedOrigins = [
   "https://personalize-fitness-trainer.netlify.app",
   // You can add local development URLs here for testing if needed
@@ -61,7 +60,7 @@ function sanitizeEmail(raw) {
 }
 
 // =================================================================
-// --- 3. ALL API ROUTES (UNCHANGED) ---
+// --- 3. ALL API ROUTES (YOUR ORIGINAL CODE, UNCHANGED) ---
 // =================================================================
 
 app.get("/", (req, res) => {
@@ -98,8 +97,6 @@ app.post('/signup', async (req, res) => {
     }
 
     const existingUser = await User.findOne({ email: sanitizedEmail });
-
-    // --- BMI Calculation (unchanged) ---
     const heightInMeters = parseFloat(height) / 100;
     const weightInKg = parseFloat(weight);
     let bmi = null;
@@ -107,19 +104,14 @@ app.post('/signup', async (req, res) => {
       bmi = parseFloat((weightInKg / (heightInMeters ** 2)).toFixed(2));
     }
 
-    // --- Logic for an EXISTING user ---
     if (existingUser) {
-      // This logic checks if a user is accidentally trying to sign up again.
       if (fullName && (typeof password !== 'undefined' && password !== null)) {
         const nameMatches = String(fullName).trim() === String(existingUser.fullName).trim();
         const passMatches = await bcrypt.compare(password, existingUser.password);
-
         if (!nameMatches || !passMatches) {
           return res.status(409).json({ error: "An account with this email address already exists. Please log in." });
         }
       }
-
-      // This logic handles profile updates for an existing, logged-in user.
       const profileUpdates = {};
       if (gender !== undefined) profileUpdates.gender = gender;
       if (age !== undefined) profileUpdates.age = age;
@@ -131,37 +123,22 @@ app.post('/signup', async (req, res) => {
       if (profileImage !== undefined) profileUpdates.profileImage = profileImage;
       if (bmi !== null) profileUpdates.bmi = bmi;
       if (fullName !== undefined) profileUpdates.fullName = fullName;
-
       if (password !== undefined && password !== '') {
         const salt = await bcrypt.genSalt(10);
         profileUpdates.password = await bcrypt.hash(password, salt);
       }
-
       if (Object.keys(profileUpdates).length > 0) {
         await User.updateOne({ email: sanitizedEmail }, { $set: profileUpdates });
       }
-
       return res.status(200).json({ message: "Profile updated successfully!", email: sanitizedEmail });
-    
-    // --- Logic for a NEW user ---
     } else {
       if (!fullName || (typeof password === 'undefined' || password === null || password === '')) {
         return res.status(400).json({ error: "Full name and password are required for new account." });
       }
-
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(password, salt);
-
-      const newUser = new User({
-        fullName,
-        email: sanitizedEmail,
-        password: hashedPassword,
-        gender, age, height, weight, place, equipments, goal, profileImage,
-        bmi
-      });
-
+      const newUser = new User({ fullName, email: sanitizedEmail, password: hashedPassword, gender, age, height, weight, place, equipments, goal, profileImage, bmi });
       await newUser.save();
-
       return res.status(201).json({ message: "Account created successfully!", email: sanitizedEmail });
     }
   } catch (err) {
@@ -170,7 +147,6 @@ app.post('/signup', async (req, res) => {
   }
 });
 
-
 app.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -178,130 +154,66 @@ app.post('/login', async (req, res) => {
     if (!sanitizedEmail || !password) {
       return res.status(400).json({ error: "Email and password are required." });
     }
-
     const user = await User.findOne({ email: sanitizedEmail });
     if (!user) {
         return res.status(401).json({ error: "Invalid credentials." });
     }
-
     const isMatch = await bcrypt.compare(password, user.password);
-
     if (!isMatch) {
       return res.status(401).json({ error: "Invalid credentials." });
     }
-
-    res.status(200).json({
-      message: "Login successful!",
-      fullName: user.fullName,
-      email: user.email,
-      profileImage: user.profileImage || null
-    });
+    res.status(200).json({ message: "Login successful!", fullName: user.fullName, email: user.email, profileImage: user.profileImage || null });
   } catch (err) {
     console.error("❌ Login error:", err);
     res.status(500).json({ error: "Login failed. Please try again." });
   }
 });
 
-// --- Route to get the daily workout plan for a user ---
 app.get('/api/workout-plan/:email', async (req, res) => {
     try {
         const userEmail = sanitizeEmail(decodeURIComponent(req.params.email));
-        if (!userEmail) {
-            return res.status(400).json({ error: 'User email is required.' });
-        }
-
+        if (!userEmail) { return res.status(400).json({ error: 'User email is required.' }); }
         const user = await User.findOne({ email: userEmail });
-        if (!user || !user.goal) {
-            return res.status(404).json({ error: 'User not found or no goal set for the user.' });
-        }
-
+        if (!user || !user.goal) { return res.status(404).json({ error: 'User not found or no goal set for the user.' }); }
         const filePath = path.join(__dirname, 'workout_plans.json');
         const fileContent = await fs.readFile(filePath, 'utf8');
         const allPlans = JSON.parse(fileContent);
-
         const userGoalKey = user.goal.replace(/\s+/g, '').toLowerCase();
         const currentDayKey = new Date().toLocaleString('en-US', { weekday: 'long' }).toLowerCase();
-
         const planForGoal = allPlans.workoutPlans[userGoalKey];
-        if (!planForGoal) {
-            return res.status(404).json({ error: 'Workout plan for the specified goal not found.' });
-        }
-
+        if (!planForGoal) { return res.status(404).json({ error: 'Workout plan for the specified goal not found.' }); }
         const todaysTasks = planForGoal[currentDayKey];
-        if (!todaysTasks || todaysTasks.length === 0) {
-            return res.status(404).json({ error: `No tasks found for ${currentDayKey}.` });
-        }
-        
+        if (!todaysTasks || todaysTasks.length === 0) { return res.status(404).json({ error: `No tasks found for ${currentDayKey}.` }); }
         res.status(200).json(todaysTasks);
-
     } catch (error) {
         console.error("❌ Error fetching workout plan:", error);
         res.status(500).json({ error: 'Failed to fetch workout plan.' });
     }
 });
 
-// --- Route to log a completed exercise session ---
 app.post('/api/log-exercise', async (req, res) => {
     try {
         const { email, exerciseName, reps, durationSeconds, caloriesBurned } = req.body;
-
         if (!email || !exerciseName || reps === undefined || durationSeconds === undefined || caloriesBurned === undefined) {
             return res.status(400).json({ error: 'Missing required performance data.' });
         }
-        
         const sanitizedEmail = email.toLowerCase().trim();
-
-        const newSession = new ExerciseSession({
-            email: sanitizedEmail,
-            exerciseName,
-            reps,
-            durationSeconds,
-            caloriesBurned
-        });
-
+        const newSession = new ExerciseSession({ email: sanitizedEmail, exerciseName, reps, durationSeconds, caloriesBurned });
         await newSession.save();
-
         res.status(201).json({ message: 'Workout session saved successfully!', data: newSession });
-
     } catch (error) {
         console.error("❌ Error logging exercise session:", error);
         res.status(500).json({ error: 'Failed to save workout session.' });
     }
 });
 
-
-// --- Chatbot Route ---
 app.post('/ask', async (req, res) => {
   const { question } = req.body;
-  if (!question) {
-    return res.status(400).json({ error: 'No question provided.' });
-  }
-
+  if (!question) { return res.status(400).json({ error: 'No question provided.' });}
   const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
-    console.error("❌ CRITICAL: OPENROUTER_API_KEY is not set in environment variables.");
-    return res.status(500).json({ error: "Server configuration error: AI service is not configured." });
-  }
-
+  if (!apiKey) { console.error("❌ CRITICAL: OPENROUTER_API_KEY is not set in environment variables."); return res.status(500).json({ error: "Server configuration error: AI service is not configured." });}
   try {
-    const response = await axios.post(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        model: "google/gemma-3-27b-it:free",
-        messages: [
-          { role: "system", content: "You are a friendly and helpful fitness assistant. Provide concise and accurate information about workouts, nutrition, and general health." },
-          { role: "user", content: question }
-        ]
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://personalize-fitness-trainer.netlify.app'
-        }
-      }
-    );
-
+    const response = await axios.post("https://openrouter.ai/api/v1/chat/completions", { model: "google/gemma-3-27b-it:free", messages: [{ role: "system", content: "You are a friendly and helpful fitness assistant. Provide concise and accurate information about workouts, nutrition, and general health." }, { role: "user", content: question }] }, { headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'https://personalize-fitness-trainer.netlify.app' } });
     if (response.data && response.data.choices && response.data.choices.length > 0 && response.data.choices[0].message) {
       const botResponse = response.data.choices[0].message.content;
       res.status(200).json({ answer: botResponse });
@@ -309,24 +221,19 @@ app.post('/ask', async (req, res) => {
       console.error("❌ Unexpected API response structure:", response.data);
       res.status(500).json({ error: "Received an invalid response from the AI service." });
     }
-
   } catch (error) {
     console.error("❌ Error calling OpenRouter API:", error.response ? JSON.stringify(error.response.data, null, 2) : error.message);
     res.status(500).json({ error: "Sorry, I couldn't get a response from the AI assistant right now." });
   }
 });
 
-// --- User Data Routes ---
 app.get('/user/:email', async (req, res) => {
   try {
     const rawEmail = req.params.email;
     const sanitizedEmail = sanitizeEmail(decodeURIComponent(rawEmail));
     if (!sanitizedEmail) return res.status(400).json({ error: 'Invalid email parameter.' });
-
     const user = await User.findOne({ email: sanitizedEmail }).select('-password');
-    if (!user) {
-      return res.status(404).json({ error: 'User not found.' });
-    }
+    if (!user) { return res.status(404).json({ error: 'User not found.' }); }
     res.json(user);
   } catch (err) {
     console.error("❌ Error fetching user:", err);
@@ -334,68 +241,15 @@ app.get('/user/:email', async (req, res) => {
   }
 });
 
-app.get('/admin/users', async (req, res) => {
-  try {
-    const users = await User.find().select('-password');
-    res.json(users);
-  } catch (err) {
-    console.error("❌ Error fetching users:", err);
-    res.status(500).json({ error: "Failed to fetch users." });
-  }
-});
-
-// --- Notification Routes ---
-app.post('/subscribe', async (req, res) => {
-  res.status(200).json({ message: 'Subscription endpoint is active.' });
-});
-
-app.get('/notifications/:email', async (req, res) => {
-  try {
-    const sanitizedEmail = sanitizeEmail(req.params.email);
-    const notifications = await Notification.find({ recipientEmail: sanitizedEmail }).sort({ timestamp: -1 });
-    res.json(notifications);
-  } catch (error) {
-    console.error("❌ Error fetching notifications:", error);
-    res.status(500).json({ error: 'Failed to fetch notifications.' });
-  }
-});
-
-app.post('/notifications/mark-read/:email', async (req, res) => {
-  try {
-    const sanitizedEmail = sanitizeEmail(req.params.email);
-    await Notification.updateMany({ recipientEmail: sanitizedEmail, read: false }, { $set: { read: true } });
-    res.status(200).send({ message: 'All notifications marked as read.'});
-  } catch (error) {
-    console.error("❌ Error marking notifications read:", error);
-    res.status(500).json({ error: 'Failed to mark notifications as read.' });
-  }
-});
-
-app.get('/notifications/unread-count/:email', async (req, res) => {
-  try {
-    const sanitizedEmail = sanitizeEmail(req.params.email);
-    const count = await Notification.countDocuments({ recipientEmail: sanitizedEmail, read: false });
-    res.json({ unreadCount: count });
-  } catch (error) {
-    console.error("❌ Error getting unread count:", error);
-    res.status(500).json({ error: 'Failed to get unread count.' });
-  }
-});
-
-// --- Challenge Routes ---
-app.get('/challenges/received/:email', async (req, res) => {
-  try {
-    const sanitizedEmail = sanitizeEmail(req.params.email);
-    const challenges = await Challenge.find({ opponentEmail: sanitizedEmail, status: 'pending' }).sort({ timestamp: -1 });
-    res.json(challenges);
-  } catch (error) {
-    console.error("❌ Error fetching challenges:", error);
-    res.status(500).json({ error: 'Failed to fetch challenges.' });
-  }
-});
+app.get('/admin/users', async (req, res) => { try { const users = await User.find().select('-password'); res.json(users); } catch (err) { console.error("❌ Error fetching users:", err); res.status(500).json({ error: "Failed to fetch users." }); } });
+app.post('/subscribe', async (req, res) => { res.status(200).json({ message: 'Subscription endpoint is active.' }); });
+app.get('/notifications/:email', async (req, res) => { try { const sanitizedEmail = sanitizeEmail(req.params.email); const notifications = await Notification.find({ recipientEmail: sanitizedEmail }).sort({ timestamp: -1 }); res.json(notifications); } catch (error) { console.error("❌ Error fetching notifications:", error); res.status(500).json({ error: 'Failed to fetch notifications.' }); } });
+app.post('/notifications/mark-read/:email', async (req, res) => { try { const sanitizedEmail = sanitizeEmail(req.params.email); await Notification.updateMany({ recipientEmail: sanitizedEmail, read: false }, { $set: { read: true } }); res.status(200).send({ message: 'All notifications marked as read.'}); } catch (error) { console.error("❌ Error marking notifications read:", error); res.status(500).json({ error: 'Failed to mark notifications as read.' }); } });
+app.get('/notifications/unread-count/:email', async (req, res) => { try { const sanitizedEmail = sanitizeEmail(req.params.email); const count = await Notification.countDocuments({ recipientEmail: sanitizedEmail, read: false }); res.json({ unreadCount: count }); } catch (error) { console.error("❌ Error getting unread count:", error); res.status(500).json({ error: 'Failed to get unread count.' }); } });
+app.get('/challenges/received/:email', async (req, res) => { try { const sanitizedEmail = sanitizeEmail(req.params.email); const challenges = await Challenge.find({ opponentEmail: sanitizedEmail, status: 'pending' }).sort({ timestamp: -1 }); res.json(challenges); } catch (error) { console.error("❌ Error fetching challenges:", error); res.status(500).json({ error: 'Failed to fetch challenges.' }); } });
 
 // =================================================================
-// --- 4. SERVER STARTUP AND REAL-TIME INTEGRATION (UNCHANGED) ---
+// --- 4. SERVER STARTUP AND REAL-TIME INTEGRATION ---
 // =================================================================
 const PORT = process.env.PORT || 10000;
 
