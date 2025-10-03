@@ -274,6 +274,55 @@ app.get('/api/performance/:email', async (req, res) => {
 });
 
 
+// =================================================================
+// --- START: NEW ROUTE TO GET DASHBOARD SUMMARY STATS ---
+// =================================================================
+app.get('/api/dashboard-stats/:email', async (req, res) => {
+    try {
+        const sanitizedEmail = sanitizeEmail(decodeURIComponent(req.params.email));
+        if (!sanitizedEmail) {
+            return res.status(400).json({ error: 'Invalid email parameter.' });
+        }
+
+        const stats = await Performance.aggregate([
+            {
+                $match: { email: sanitizedEmail } // Filter by user's email
+            },
+            {
+                $group: {
+                    _id: null, // Group all matching documents into a single result
+                    dailyTasks: { $sum: 1 }, // Count the number of documents
+                    totalDurationSeconds: { $sum: '$duration' }, // Sum up the duration
+                    totalCalories: { $sum: '$estimatedCaloriesBurned' } // Sum up the calories
+                }
+            }
+        ]);
+
+        if (stats.length > 0) {
+            const result = stats[0];
+            res.status(200).json({
+                dailyTasks: result.dailyTasks,
+                timeSpentMinutes: Math.round(result.totalDurationSeconds / 60),
+                caloriesBurned: result.totalCalories
+            });
+        } else {
+            // If no performance data is found for the user, return zeros
+            res.status(200).json({
+                dailyTasks: 0,
+                timeSpentMinutes: 0,
+                caloriesBurned: 0
+            });
+        }
+
+    } catch (err) {
+        console.error("❌ Error fetching dashboard stats:", err);
+        res.status(500).json({ error: 'Failed to fetch dashboard statistics.' });
+    }
+});
+// =================================================================
+// --- END: NEW ROUTE ---
+// =================================================================
+
 
 // --- NEW: Route to get the daily workout plan for a user ---
 app.get('/api/workout-plan/:email', async (req, res) => {
