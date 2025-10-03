@@ -19,6 +19,7 @@ const { Server } = require("socket.io");
 const User = require('./models/User');
 const Notification = require('./models/Notification');
 const Challenge = require('./models/Challenge');
+const Performance = require('./models/Performance');
 
 // =================================================================
 // --- 2. INITIALIZATION & MIDDLEWARE ---
@@ -195,6 +196,80 @@ app.post('/login', async (req, res) => {
   } catch (err) {
     console.error("❌ Login error:", err);
     res.status(500).json({ error: "Login failed. Please try again." });
+  }
+});
+
+// Add this route with your other API routes
+app.post('/api/save-performance', async (req, res) => {
+  try {
+    const { email, count, startTime, endTime } = req.body;
+    
+    const sanitizedEmail = sanitizeEmail(email);
+    if (!sanitizedEmail) {
+      return res.status(400).json({ error: 'Email is required.' });
+    }
+
+    // Validate required fields
+    if (!count || !startTime || !endTime) {
+      return res.status(400).json({ error: 'Count, startTime, and endTime are required.' });
+    }
+
+    // Calculate duration in seconds
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    const durationSeconds = Math.round((end - start) / 1000);
+
+    // Calculate estimated calories burned
+    // Formula: Push-ups burn approximately 0.32 calories per rep
+    // Plus 7 calories per minute of exercise
+    const caloriesFromReps = count * 0.32;
+    const caloriesFromTime = (durationSeconds / 60) * 7;
+    const estimatedCaloriesBurned = Math.round(caloriesFromReps + caloriesFromTime);
+
+    // Create new performance record
+    const newPerformance = new Performance({
+      email: sanitizedEmail,
+      count,
+      startTime: start,
+      endTime: end,
+      duration: durationSeconds,
+      estimatedCaloriesBurned
+    });
+
+    await newPerformance.save();
+
+    res.status(201).json({
+      message: 'Performance data saved successfully!',
+      data: {
+        count,
+        duration: durationSeconds,
+        caloriesBurned: estimatedCaloriesBurned
+      }
+    });
+
+  } catch (err) {
+    console.error("❌ Error saving performance:", err);
+    res.status(500).json({ error: 'Failed to save performance data.' });
+  }
+});
+
+// Optional: Get user's performance history
+app.get('/api/performance/:email', async (req, res) => {
+  try {
+    const sanitizedEmail = sanitizeEmail(decodeURIComponent(req.params.email));
+    if (!sanitizedEmail) {
+      return res.status(400).json({ error: 'Invalid email parameter.' });
+    }
+
+    const performances = await Performance.find({ email: sanitizedEmail })
+      .sort({ date: -1 })
+      .limit(50); // Get last 50 records
+
+    res.status(200).json(performances);
+
+  } catch (err) {
+    console.error("❌ Error fetching performance data:", err);
+    res.status(500).json({ error: 'Failed to fetch performance data.' });
   }
 });
 

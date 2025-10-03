@@ -48,7 +48,7 @@
         { "name": "Deadlift", "target": "8 Repetitions", "requirements": "Barbell & Weights", "imageUrl": "deadlift.png" },
         { "name": "Bench Press", "target": "10 Repetitions", "requirements": "Bench & Barbell", "imageUrl": "bench_press.png" },
         { "name": "Seated Cable Rows", "target": "12 Repetitions", "requirements": "Cable Machine", "imageUrl": "seated_cable_rows.png" },
-        { "name": "Leg Extension", "target": "15 Repetitions", "requirements": "Leg Extension Machine", "imageUrl": "leg_extension.png" },
+        { "name": "Leg Extension", "target": "15 Repetitions", "requirements": "Leg Extension Machine", "imageUrl": "leg _extension.png" },
         { "name": "Tricep Dips", "target": "20 Repetitions", "requirements": "Bench or Power Tower", "imageUrl": "tricep_dips.png" },
         { "name": "Pushups", "target": "20 Repetitions", "requirements": "No Equipment", "imageUrl": "pushups.png" },
         { "name": "Treadmill", "target": "15 Minutes (Moderate Pace)", "requirements": "Treadmill Required", "imageUrl": "trend_mill.png" }
