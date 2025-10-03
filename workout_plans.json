@@ -9,7 +9,7 @@
         { "name": "Bench Press", "target": "10 Repetitions", "requirements": "Bench & Barbell", "imageUrl": "bench_press.png" },
         { "name": "Seated Cable Rows", "target": "12 Repetitions", "requirements": "Cable Machine", "imageUrl": "seated_cable_rows.png" },
         { "name": "Over Head Press", "target": "10 Repetitions", "requirements": "Barbell or Dumbbells", "imageUrl": "over_head_press.png" },
-        { "name": "Leg Extension", "target": "15 Repetitions", "requirements": "Leg Extension Machine", "imageUrl": "leg_extension.png" },
+        { "name": "Leg Extension", "target": "15 Repetitions", "requirements": "Leg Extension Machine", "imageUrl": "leg _extension.png" },
         { "name": "Crunches", "target": "20 Repetitions", "requirements": "No Equipment", "imageUrl": "crunch.png" },
         { "name": "Treadmill", "target": "15 Minutes (Moderate Pace)", "requirements": "Treadmill Required", "imageUrl": "trend_mill.png" }
       ],
@@ -104,7 +104,7 @@
         { "name": "Side Lateral Raise", "target": "15 Repetitions", "requirements": "Dumbbells", "imageUrl": "side_lateral_raise.png" },
         { "name": "Crunches", "target": "30 Repetitions", "requirements": "No Equipment", "imageUrl": "crunch.png" },
         { "name": "Tricep Dips", "target": "Max Repetitions", "requirements": "Bench or Power Tower", "imageUrl": "tricep_dips.png" },
-        { "name": "Leg Extension", "target": "15 Repetitions", "requirements": "Leg Extension Machine", "imageUrl": "leg_extension.png" },
+        { "name": "Leg Extension", "target": "15 Repetitions", "requirements": "Leg Extension Machine", "imageUrl": "leg _extension.png" },
         { "name": "Treadmill", "target": "25 Minutes (Steady Pace)", "requirements": "Treadmill Required", "imageUrl": "trend_mill.png" }
       ],
       "thursday": [
@@ -166,7 +166,7 @@
         { "name": "Deadlift", "target": "6 Heavy Repetitions", "requirements": "Barbell & Weights", "imageUrl": "deadlift.png" },
         { "name": "Dumbbell Fly", "target": "10 Repetitions", "requirements": "Bench & Dumbbells", "imageUrl": "dumbbell_fly.png" },
         { "name": "Side Lateral Raise", "target": "12 Repetitions", "requirements": "Dumbbells", "imageUrl": "side_lateral_raise.png" },
-        { "name": "Leg Extension", "target": "12 Repetitions", "requirements": "Leg Extension Machine", "imageUrl": "leg_extension.png" },
+        { "name": "Leg Extension", "target": "12 Repetitions", "requirements": "Leg Extension Machine", "imageUrl": "leg _extension.png" },
         { "name": "Cable Lateral Raise", "target": "12 Repetitions", "requirements": "Cable Machine", "imageUrl": "cable_lateral_raise.png" },
         { "name": "Pushups", "target": "15 Repetitions", "requirements": "No Equipment", "imageUrl": "pushups.png" },
         { "name": "Power Tower Knee Raises", "target": "15 Repetitions", "requirements": "Power Tower", "imageUrl": "power_tower.png" }
@@ -197,7 +197,7 @@
         { "name": "Bench Press", "target": "8 Heavy Repetitions", "requirements": "Bench & Barbell", "imageUrl": "bench_press.png" },
         { "name": "Over Head Press", "target": "8 Repetitions", "requirements": "Barbell or Dumbbells", "imageUrl": "over_head_press.png" },
         { "name": "Seated Cable Rows", "target": "10 Repetitions", "requirements": "Cable Machine", "imageUrl": "seated_cable_rows.png" },
-        { "name": "Leg Extension", "target": "12 Repetitions", "requirements": "Leg Extension Machine", "imageUrl": "leg_extension.png" },
+        { "name": "Leg Extension", "target": "12 Repetitions", "requirements": "Leg Extension Machine", "imageUrl": "leg _extension.png" },
         { "name": "Power Tower Knee Raises", "target": "15 Repetitions", "requirements": "Power Tower", "imageUrl": "power_tower.png" },
         { "name": "Treadmill", "target": "10 Minutes (Cool-down)", "requirements": "Treadmill Required", "imageUrl": "trend_mill.png" }
       ],
@@ -216,7 +216,7 @@
         { "name": "Dumbbell Fly", "target": "12 Repetitions", "requirements": "Bench & Dumbbells", "imageUrl": "dumbbell_fly.png" },
         { "name": "Side Lateral Raise", "target": "15 Repetitions", "requirements": "Dumbbells", "imageUrl": "side_lateral_raise.png" },
         { "name": "Cable Lateral Raise", "target": "15 Repetitions", "requirements": "Cable Machine", "imageUrl": "cable_lateral_raise.png" },
-        { "name": "Leg Extension", "target": "15 Repetitions", "requirements": "Leg Extension Machine", "imageUrl": "leg_extension.png" },
+        { "name": "Leg Extension", "target": "15 Repetitions", "requirements": "Leg Extension Machine", "imageUrl": "leg _extension.png" },
         { "name": "Crunches", "target": "25 Repetitions", "requirements": "No Equipment", "imageUrl": "crunch.png" },
         { "name": "Pushups", "target": "15 Repetitions", "requirements": "No Equipment", "imageUrl": "pushups.png" },
         { "name": "Treadmill", "target": "15 Minutes (Light Jog)", "requirements": "Treadmill Required", "imageUrl": "trend_mill.png" }
