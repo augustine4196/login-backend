@@ -484,6 +484,35 @@ app.get('/notifications/unread-count/:email', async (req, res) => {
   }
 });
 
+// =================================================================
+// --- ADD THIS ROUTE TO FETCH USER BMI ---
+// =================================================================
+app.get('/api/user/bmi/:email', async (req, res) => {
+  try {
+    // Sanitize the email from the URL parameter
+    const sanitizedEmail = sanitizeEmail(decodeURIComponent(req.params.email));
+    if (!sanitizedEmail) {
+      return res.status(400).json({ error: 'A valid email parameter is required.' });
+    }
+
+    // Find the user by email and select only the 'bmi' field for efficiency
+    const user = await User.findOne({ email: sanitizedEmail }).select('bmi');
+
+    // If no user is found or the user has no BMI value, return a 404 error
+    if (!user || user.bmi === null || typeof user.bmi === 'undefined') {
+      return res.status(404).json({ error: 'BMI data not found for this user.' });
+    }
+
+    // Send the BMI value back in a JSON object
+    res.status(200).json({ bmi: user.bmi });
+
+  } catch (err) {
+    // Handle any server errors
+    console.error("❌ Error fetching user BMI:", err);
+    res.status(500).json({ error: 'Failed to fetch user BMI data.' });
+  }
+});
+
 // --- Challenge Routes (UNCHANGED except email sanitization) ---
 app.get('/challenges/received/:email', async (req, res) => {
   try {
