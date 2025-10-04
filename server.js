@@ -284,9 +284,20 @@ app.get('/api/dashboard-stats/:email', async (req, res) => {
             return res.status(400).json({ error: 'Invalid email parameter.' });
         }
 
+        // Get the start and end of the current day
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+
         const stats = await Performance.aggregate([
             {
-                $match: { email: sanitizedEmail } // Filter by user's email
+                $match: {
+                    email: sanitizedEmail, // Filter by user's email
+                    createdAt: { // Assuming you have a timestamp field named 'createdAt'
+                        $gte: startOfToday,
+                        $lt: endOfToday
+                    }
+                }
             },
             {
                 $group: {
@@ -306,7 +317,7 @@ app.get('/api/dashboard-stats/:email', async (req, res) => {
                 caloriesBurned: result.totalCalories
             });
         } else {
-            // If no performance data is found for the user, return zeros
+            // If no performance data is found for the user for the current day, return zeros
             res.status(200).json({
                 dailyTasks: 0,
                 timeSpentMinutes: 0,
