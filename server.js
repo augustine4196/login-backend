@@ -9,6 +9,8 @@ const axios = require('axios');
 const bcrypt = require('bcryptjs'); // <-- ADD THIS LINE
 const fs = require('fs').promises; // Use promises for async file reading
 const path = require('path');
+const Razorpay = require('razorpay'); // <-- ADD THIS
+const crypto = require('crypto');     // <-- ADD THIS
 require('dotenv').config();
 
 // Required modules for the correct server structure
@@ -20,11 +22,17 @@ const User = require('./models/User');
 const Notification = require('./models/Notification');
 const Challenge = require('./models/Challenge');
 const Performance = require('./models/Performance');
+const Subscription = require('./models/Subscription'); // <-- ADD THIS
 
 // =================================================================
 // --- 2. INITIALIZATION & MIDDLEWARE ---
 // =================================================================
 const app = express();
+
+const razorpay = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
 
 // server.js (UPDATED CORS CONFIGURATION)
 app.use(cors({
@@ -334,6 +342,83 @@ app.get('/api/dashboard-stats/:email', async (req, res) => {
 // --- END: NEW ROUTE ---
 // =================================================================
 
+app.post('/api/payment/create-order', async (req, res) => {
+    try {
+        const amount = 199; // Amount in INR for your plan
+        const options = {
+            amount: amount * 100, // Razorpay expects amount in the smallest currency unit (paise)
+            currency: "INR",
+            receipt: `receipt_order_${new Date().getTime()}`, // A unique receipt ID
+        };
+
+        const order = await razorpay.orders.create(options);
+
+        if (!order) {
+            return res.status(500).send("Error creating Razorpay order.");
+        }
+
+        res.status(200).json(order);
+    } catch (error) {
+        console.error("❌ Error creating Razorpay order:", error);
+        res.status(500).json({ error: "Failed to create payment order." });
+    }
+});
+
+// ROUTE 2: Verify the Payment
+app.post('/api/payment/verify-payment', async (req, res) => {
+    try {
+        const {
+            razorpay_order_id,
+            razorpay_payment_id,
+            razorpay_signature,
+            userEmail // We get this from the frontend
+        } = req.body;
+
+        if (!userEmail) {
+            return res.status(400).json({ error: "User email is required for verification." });
+        }
+        
+        // Step 1: Create the signature hash using crypto
+        const body = razorpay_order_id + "|" + razorpay_payment_id;
+        const expectedSignature = crypto
+            .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+            .update(body.toString())
+            .digest('hex');
+            
+        // Step 2: Compare the signatures
+        const isAuthentic = expectedSignature === razorpay_signature;
+
+        if (isAuthentic) {
+            // Payment is authentic, now save details to DB
+            
+            // a) Create a new entry in the 'subscriptions' collection
+            await Subscription.create({
+                userEmail,
+                razorpayOrderId: razorpay_order_id,
+                razorpayPaymentId: razorpay_payment_id,
+                razorpaySignature: razorpay_signature,
+                status: 'paid',
+                amount: 19900, // 199 INR in paise
+                paidAt: new Date(),
+            });
+
+            // b) Update the User model to mark them as a premium user
+            await User.findOneAndUpdate(
+                { email: sanitizeEmail(userEmail) },
+                { $set: { isPremium: true } }
+            );
+
+            res.status(200).json({ success: true, message: "Payment verified successfully!" });
+
+        } else {
+            // Payment is not authentic
+            res.status(400).json({ success: false, message: "Payment verification failed." });
+        }
+    } catch (error) {
+        console.error("❌ Error verifying payment:", error);
+        res.status(500).json({ error: "Internal server error during payment verification." });
+    }
+});
 
 // --- NEW: Route to get the daily workout plan for a user ---
 app.get('/api/workout-plan/:email', async (req, res) => {
