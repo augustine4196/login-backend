@@ -342,21 +342,22 @@ app.get('/api/dashboard-stats/:email', async (req, res) => {
 // --- END: NEW ROUTE ---
 // =================================================================
 
+// =================================================================
+// --- START: RAZORPAY PAYMENT ROUTES (REPLACE YOUR OLD BLOCK WITH THIS) ---
+// =================================================================
+
+// ROUTE 1: Create a Payment Order
+// This is called by your frontend when the user clicks "Subscribe Now".
 app.post('/api/payment/create-order', async (req, res) => {
     try {
-        const amount = 199; // Amount in INR for your plan
+        const amount = 1; // Amount in INR for your live testing
         const options = {
-            amount: amount * 100, // Razorpay expects amount in the smallest currency unit (paise)
+            amount: amount * 100, // Razorpay expects amount in paise (100 for ₹1)
             currency: "INR",
-            receipt: `receipt_order_${new Date().getTime()}`, // A unique receipt ID
+            receipt: `receipt_order_${new Date().getTime()}`,
         };
 
         const order = await razorpay.orders.create(options);
-
-        if (!order) {
-            return res.status(500).send("Error creating Razorpay order.");
-        }
-
         res.status(200).json(order);
     } catch (error) {
         console.error("❌ Error creating Razorpay order:", error);
@@ -364,54 +365,54 @@ app.post('/api/payment/create-order', async (req, res) => {
     }
 });
 
-// ROUTE 2: Verify the Payment
+
+// ROUTE 2: Verify Payment from Frontend
+// This is called by your frontend's 'handler' function after a successful payment.
+// It acts as a quick confirmation for the user.
 app.post('/api/payment/verify-payment', async (req, res) => {
     try {
         const {
             razorpay_order_id,
             razorpay_payment_id,
             razorpay_signature,
-            userEmail // We get this from the frontend
+            userEmail
         } = req.body;
 
         if (!userEmail) {
             return res.status(400).json({ error: "User email is required for verification." });
         }
         
-        // Step 1: Create the signature hash using crypto
         const body = razorpay_order_id + "|" + razorpay_payment_id;
         const expectedSignature = crypto
-            .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+            .createHmac('sha26', process.env.RAZORPAY_KEY_SECRET)
             .update(body.toString())
             .digest('hex');
             
-        // Step 2: Compare the signatures
-        const isAuthentic = expectedSignature === razorpay_signature;
+        if (expectedSignature === razorpay_signature) {
+            // Payment is authentic, now save details to DB.
+            // We do a check to avoid creating a duplicate entry if the webhook already processed it.
+            const existingSubscription = await Subscription.findOne({ razorpayPaymentId: razorpay_payment_id });
 
-        if (isAuthentic) {
-            // Payment is authentic, now save details to DB
-            
-            // a) Create a new entry in the 'subscriptions' collection
-            await Subscription.create({
-                userEmail,
-                razorpayOrderId: razorpay_order_id,
-                razorpayPaymentId: razorpay_payment_id,
-                razorpaySignature: razorpay_signature,
-                status: 'paid',
-                amount: 19900, // 199 INR in paise
-                paidAt: new Date(),
-            });
+            if (!existingSubscription) {
+                await Subscription.create({
+                    userEmail,
+                    razorpayOrderId: razorpay_order_id,
+                    razorpayPaymentId: razorpay_payment_id,
+                    razorpaySignature: razorpay_signature,
+                    status: 'paid',
+                    amount: 1 * 100, // Save amount in paise (100 for ₹1)
+                    paidAt: new Date(),
+                });
 
-            // b) Update the User model to mark them as a premium user
-            await User.findOneAndUpdate(
-                { email: sanitizeEmail(userEmail) },
-                { $set: { isPremium: true } }
-            );
+                await User.findOneAndUpdate(
+                    { email: sanitizeEmail(userEmail) },
+                    { $set: { isPremium: true } }
+                );
+            }
 
             res.status(200).json({ success: true, message: "Payment verified successfully!" });
 
         } else {
-            // Payment is not authentic
             res.status(400).json({ success: false, message: "Payment verification failed." });
         }
     } catch (error) {
@@ -419,6 +420,64 @@ app.post('/api/payment/verify-payment', async (req, res) => {
         res.status(500).json({ error: "Internal server error during payment verification." });
     }
 });
+
+
+// ROUTE 3: Webhook Handler (More Reliable)
+// This is called directly by Razorpay's servers after a successful payment.
+// This is the most reliable way to ensure you never miss a payment.
+app.post('/api/payment/webhook', async (req, res) => {
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    
+    // Step 1: Validate the webhook signature
+    const shasum = crypto.createHmac('sha256', secret);
+    shasum.update(JSON.stringify(req.body));
+    const digest = shasum.digest('hex');
+
+    if (digest === req.headers['x-razorpay-signature']) {
+        // Signature is authentic
+        const event = req.body;
+
+        // Step 2: Process only 'payment.captured' events
+        if (event.event === 'payment.captured' && event.payload.payment.entity.status === 'captured') {
+            const paymentEntity = event.payload.payment.entity;
+            const userEmail = paymentEntity.email;
+            
+            try {
+                // Step 3: Check if this payment has already been processed (Idempotency)
+                const existingSubscription = await Subscription.findOne({ razorpayPaymentId: paymentEntity.id });
+                
+                if (!existingSubscription && userEmail) {
+                    await Subscription.create({
+                        userEmail: userEmail,
+                        razorpayOrderId: paymentEntity.order_id,
+                        razorpayPaymentId: paymentEntity.id,
+                        razorpaySignature: req.headers['x-razorpay-signature'],
+                        status: 'paid',
+                        amount: paymentEntity.amount, // Amount from Razorpay is already in paise
+                        paidAt: new Date(paymentEntity.created_at * 1000),
+                    });
+
+                    await User.findOneAndUpdate(
+                        { email: sanitizeEmail(userEmail) },
+                        { $set: { isPremium: true } }
+                    );
+                    console.log(`✅ Webhook: Payment for ${userEmail} verified and saved.`);
+                }
+            } catch (dbError) {
+                console.error("❌ Webhook DB Error:", dbError);
+            }
+        }
+    } else {
+        console.warn("⚠️ Webhook signature validation failed.");
+    }
+
+    // Acknowledge receipt of the event to Razorpay with a 200 OK
+    res.json({ status: 'ok' });
+});
+
+// =================================================================
+// --- END: RAZORPAY PAYMENT ROUTES ---
+// =================================================================
 
 // --- NEW: Route to get the daily workout plan for a user ---
 app.get('/api/workout-plan/:email', async (req, res) => {
